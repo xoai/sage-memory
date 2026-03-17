@@ -147,13 +147,21 @@ TOOLS = [
     ),
     types.Tool(
         name="memory_list",
-        description="Browse stored memories. Shows what knowledge exists, sorted by most recently updated.",
+        description=(
+            "Browse stored memories with optional tag filtering. "
+            "Shows what knowledge exists, sorted by most recently updated. "
+            "Tags use AND logic: all specified tags must match."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
                 "scope": {
                     "type": "string", "enum": ["project", "global"],
                     "description": "Which database to browse (default: project).",
+                },
+                "tags": {
+                    "type": "array", "items": {"type": "string"},
+                    "description": "Filter by tags (AND logic — all must match).",
                 },
                 "limit": {"type": "integer", "description": "Page size (default 20)."},
                 "offset": {"type": "integer", "description": "Pagination offset."},

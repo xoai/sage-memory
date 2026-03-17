@@ -133,16 +133,27 @@ def delete(*, id: str, scope: str = "project") -> dict:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-def list_memories(*, scope: str = "project", limit: int = 20, offset: int = 0) -> dict:
-    """Browse stored memories with pagination."""
+def list_memories(*, scope: str = "project", tags: list[str] | None = None,
+                  limit: int = 20, offset: int = 0) -> dict:
+    """Browse stored memories with optional tag filtering (AND logic)."""
     db = get_db(scope)
     limit = max(1, min(limit, 100))
 
-    total = db.execute("SELECT COUNT(*) c FROM memories").fetchone()["c"]
+    where_parts: list[str] = []
+    params: list = []
+
+    if tags:
+        for tag in tags:
+            where_parts.append("tags LIKE ?")
+            params.append(f'%"{tag.lower().strip()}"%')
+
+    where = (" WHERE " + " AND ".join(where_parts)) if where_parts else ""
+
+    total = db.execute(f"SELECT COUNT(*) c FROM memories{where}", params).fetchone()["c"]
     rows = db.execute(
-        """SELECT id, title, tags, access_count, updated_at
-           FROM memories ORDER BY updated_at DESC LIMIT ? OFFSET ?""",
-        (limit, max(0, offset)),
+        f"""SELECT id, title, tags, access_count, updated_at
+            FROM memories{where} ORDER BY updated_at DESC LIMIT ? OFFSET ?""",
+        [*params, limit, max(0, offset)],
     ).fetchall()
 
     return {
