@@ -94,7 +94,15 @@ TOOLS = [
                 },
                 "tags": {
                     "type": "array", "items": {"type": "string"},
-                    "description": "Optional tags to boost matching results.",
+                    "description": "Soft boost — results with these tags rank higher, but non-matching results are still included.",
+                },
+                "filter_tags": {
+                    "type": "array", "items": {"type": "string"},
+                    "description": (
+                        "Hard filter (AND logic) — ONLY return memories matching ALL these tags. "
+                        "Use for namespace isolation, e.g. filter_tags: [\"self-learning\"] "
+                        "to search only within learnings."
+                    ),
                 },
                 "limit": {
                     "type": "integer",
@@ -147,13 +155,21 @@ TOOLS = [
     ),
     types.Tool(
         name="memory_list",
-        description="Browse stored memories. Shows what knowledge exists, sorted by most recently updated.",
+        description=(
+            "Browse stored memories with optional tag filtering. "
+            "Shows what knowledge exists, sorted by most recently updated. "
+            "Tags use AND logic: all specified tags must match."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
                 "scope": {
                     "type": "string", "enum": ["project", "global"],
                     "description": "Which database to browse (default: project).",
+                },
+                "tags": {
+                    "type": "array", "items": {"type": "string"},
+                    "description": "Filter by tags (AND logic — all must match).",
                 },
                 "limit": {"type": "integer", "description": "Page size (default 20)."},
                 "offset": {"type": "integer", "description": "Pagination offset."},

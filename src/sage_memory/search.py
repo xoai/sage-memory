@@ -32,6 +32,10 @@ _RRF_K = 60
 # Below this, skip vec search entirely
 _VEC_QUALITY_THRESHOLD = 0.6
 
+# When filter_tags is present, over-fetch from FTS5/vec by this multiplier
+# to compensate for candidates removed by tag filtering.
+_FILTER_OVERFETCH = 3
+
 # Temporal decay half-life: 14 days
 _DECAY_HALF_LIFE = 14 * 86400
 
@@ -59,9 +63,16 @@ _STOP = frozenset(
 
 
 def search(*, query: str, scope: str = "project",
-           tags: list[str] | None = None, limit: int = 5,
+           tags: list[str] | None = None,
+           filter_tags: list[str] | None = None,
+           limit: int = 5,
            strategy: str = "hybrid") -> dict:
-    """Search memories across project + global DBs."""
+    """Search memories across project + global DBs.
+
+    tags: boost matching results (+3% per match). Does not exclude.
+    filter_tags: hard WHERE filter (AND logic). Only memories matching
+                 ALL filter_tags are returned. Use for namespace isolation.
+    """
     query = query.strip()
     if len(query) < 2:
         return {"results": [], "total": 0, "query": query}
@@ -70,7 +81,14 @@ def search(*, query: str, scope: str = "project",
     now = time.time()
     embedder = get_embedder()
     use_vec = strategy in ("hybrid", "semantic") and embedder.quality >= _VEC_QUALITY_THRESHOLD
-    candidates_per_leg = limit * 2
+
+    # Over-fetch when filter_tags present — filtering removes candidates,
+    # so we need more from FTS5/vec to fill the requested limit.
+    overfetch = _FILTER_OVERFETCH if filter_tags else 1
+    candidates_per_leg = limit * 2 * overfetch
+
+    # Build tag filter SQL fragments (reused by both FTS and vec)
+    tag_where, tag_params = _build_tag_filter(filter_tags)
 
     # Determine which databases to search
     if scope == "global":
@@ -92,12 +110,12 @@ def search(*, query: str, scope: str = "project",
             embed_pending(db, batch_size=20)
 
         # FTS5 search
-        fts_ids, row_cache = _fts_search(db, query, candidates_per_leg)
+        fts_ids, row_cache = _fts_search(db, query, candidates_per_leg, tag_where, tag_params)
 
         # Vec search
         vec_ids: list[str] = []
         if use_vec and query_vec and strategy != "keyword":
-            vec_ids, vec_rows = _vec_search(db, query_vec, candidates_per_leg)
+            vec_ids, vec_rows = _vec_search(db, query_vec, candidates_per_leg, tag_where, tag_params)
             row_cache.update(vec_rows)
 
         if strategy == "keyword":
@@ -180,24 +198,54 @@ def search(*, query: str, scope: str = "project",
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Tag filter builder
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+def _build_tag_filter(filter_tags: list[str] | None) -> tuple[str, list]:
+    """Build SQL WHERE fragment for hard tag filtering (AND logic).
+
+    Returns ("m.tags LIKE ? AND m.tags LIKE ?", [params...]) or ("", []).
+    """
+    if not filter_tags:
+        return "", []
+
+    clauses = []
+    params = []
+    for tag in filter_tags:
+        clauses.append("m.tags LIKE ?")
+        params.append(f'%"{tag.lower().strip()}"%')
+
+    return " AND ".join(clauses), params
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # FTS5 search with smart query building
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-def _fts_search(db, query: str, limit: int) -> tuple[list[str], dict[str, dict]]:
+def _fts_search(db, query: str, limit: int,
+                tag_where: str, tag_params: list
+                ) -> tuple[list[str], dict[str, dict]]:
     fts_q = _build_fts_query(db, query)
     if not fts_q:
         return [], {}
 
+    sql = """SELECT m.*, bm25(memories_fts, 10.0, 3.0, 1.0) AS bm25_score
+             FROM memories m
+             JOIN memories_fts fts ON m.rowid = fts.rowid
+             WHERE memories_fts MATCH ?"""
+    params: list = [fts_q]
+
+    if tag_where:
+        sql += f" AND {tag_where}"
+        params.extend(tag_params)
+
+    sql += " ORDER BY bm25_score LIMIT ?"
+    params.append(limit)
+
     try:
-        rows = db.execute(
-            """SELECT m.*, bm25(memories_fts, 10.0, 3.0, 1.0) AS bm25_score
-               FROM memories m
-               JOIN memories_fts fts ON m.rowid = fts.rowid
-               WHERE memories_fts MATCH ?
-               ORDER BY bm25_score LIMIT ?""",
-            (fts_q, limit),
-        ).fetchall()
+        rows = db.execute(sql, params).fetchall()
     except Exception:
         return [], {}
 
@@ -257,7 +305,9 @@ def _build_fts_query(db, query: str) -> str:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-def _vec_search(db, query_vec: list[float], limit: int) -> tuple[list[str], dict[str, dict]]:
+def _vec_search(db, query_vec: list[float], limit: int,
+                tag_where: str, tag_params: list
+                ) -> tuple[list[str], dict[str, dict]]:
     vec_bytes = serialize_vec(query_vec)
 
     rows = db.execute(
@@ -271,9 +321,15 @@ def _vec_search(db, query_vec: list[float], limit: int) -> tuple[list[str], dict
 
     ids = [r["memory_id"] for r in rows]
     ph = ",".join("?" for _ in ids)
-    mem_rows = db.execute(
-        f"SELECT * FROM memories WHERE id IN ({ph})", ids
-    ).fetchall()
+
+    sql = f"SELECT * FROM memories WHERE id IN ({ph})"
+    params = list(ids)
+
+    if tag_where:
+        sql += f" AND {tag_where}"
+        params.extend(tag_params)
+
+    mem_rows = db.execute(sql, params).fetchall()
 
     cache = {r["id"]: dict(r) for r in mem_rows}
     ordered = [mid for mid in ids if mid in cache]
