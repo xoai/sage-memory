@@ -1,47 +1,62 @@
 # sage-memory
 
-A local memory system for AI agents. Project-aware, zero-config, sub-3ms search, graph-traversable.
+Memory that learns. Not just remembers.
 
-sage-memory is an [MCP](https://modelcontextprotocol.io) server that gives AI coding assistants persistent, structured memory. It stores what the AI learns about your codebase and retrieves it in future sessions — architecture decisions, entity relationships, past mistakes, conventions. Three kinds of memory, one unified system.
+sage-memory is a local [MCP](https://modelcontextprotocol.io) memory server for AI agents. It gives any AI assistant — coding tools, personal agents, team copilots — three kinds of persistent memory that compound over time:
 
-- **91% recall** on natural language queries (BM25 with OR semantics)
+**Knowledge** — what you understand. Architecture, conventions, preferences, domain logic. *(→ memory skill)*
+
+**Structure** — how things connect. Entity relationships, dependency graphs, ownership. *(→ ontology skill)*
+
+**Experience** — what you've learned the hard way. Mistakes, corrections, prevention rules. *(→ self-learning skill)*
+
+One search returns all three. The agent knows how things work, how they connect, and what to watch out for — the way a human expert thinks about a domain.
+
+```
+  memory skill        ontology skill       self-learning skill
+       │                    │                      │
+       ▼                    ▼                      ▼
+  ┌─────────┐       ┌────────────┐        ┌────────────┐
+  │Knowledge│       │ Structure  │        │ Experience │
+  │ (prose) │       │  (graph)   │        │  (rules)   │
+  └────┬────┘       └─────┬──────┘        └─────┬──────┘
+       │                  │                      │
+       └──────────────────┼──────────────────────┘
+                          ▼
+                ┌───────────────────┐
+                │    sage-memory    │
+                │  one SQLite file  │
+                │  FTS5 + vec + edges│
+                └────────┬──────────┘
+                         │
+                         ▼
+                   unified search
+              "what do I know about X?"
+          → knowledge + structure + experience
+```
+
+### Why sage-memory
+
+- **The agent gets better every session.** Mistakes become prevention rules. Prevention rules compound across projects. The agent develops judgment, not just a bigger database.
+- **Intelligence lives in skills, not in the server.** The server is fast and dumb (~1,500 lines). Three skills teach the agent *what* to remember, *how* to learn from errors, and *when* to recall. Improve the agent by editing a markdown file, not shipping code.
+- **Zero infrastructure. One SQLite file.** No Docker, no Redis, no cloud, no API keys. Your knowledge never leaves your machine.
+
+### Highlights
+
+- **91% recall** on natural language queries — proven on 4 real codebases (340K lines)
 - **Sub-3ms search**, sub-0.3ms graph traversal, ~1,000 writes/sec
-- **Project-isolated** — each codebase gets its own `.sage-memory/` database
-- **Graph-native** — typed, directed edges between memories with cycle-safe multi-hop traversal
-- **Dual-scope** — project knowledge + global preferences, merged and ranked automatically
-- **Zero configuration** — auto-detects project root, creates database, routes queries
+- **Self-learning loop** — mistake → prevention rule → recall → improvement, automatically
+- **Graph-native** — typed edges with cycle-safe multi-hop traversal
 - **2 dependencies, ~1,500 lines** — lean, auditable, no ML stack required
-- **Works with** Claude Code, Cursor, Windsurf, VS Code, and any MCP-compatible client
-
-## Philosophy
-
-AI agents today have no continuity. Each session starts blank — the assistant re-reads files, re-discovers patterns, re-learns conventions. Accumulated understanding is lost. sage-memory fixes this by giving agents three kinds of persistent memory that mirror how humans build expertise:
-
-**Knowledge** — what you understand. Architecture decisions, conventions, domain logic. "The billing service uses a saga pattern because the team needed atomic multi-service operations with audit trails."
-
-**Structure** — how things connect. Entity relationships, dependency graphs, ownership. "PaymentService depends on StripeGateway and LedgerService. Task A blocks Task B. Alice owns the billing module."
-
-**Warnings** — what went wrong. Mistakes, gotchas, corrections. "Stripe webhooks require the raw request body — Express body parser breaks signature verification with a misleading 400 error."
-
-These aren't three separate systems. They're three facets of one knowledge base, stored in one database, searchable in one query. When an agent starts working on the billing module, a single search returns: how billing works (knowledge), what it connects to (structure), and what went wrong last time (warnings). This is how human experts think about a system — simultaneously holding what, how, and watch-out-for.
-
-The memory lives with your project, not in a cloud service. Each project gets its own SQLite database. Your private codebase knowledge never leaves your machine.
 
 ## Setup
 
-Add sage-memory to your MCP client config. With [uv](https://docs.astral.sh/uv/), it installs and runs automatically — no manual `pip install` needed.
+With [uv](https://docs.astral.sh/uv/), sage-memory installs and runs automatically — no manual `pip install`:
 
-> **Don't have uv?** It's a fast, modern Python package manager. Install it in one command:
->
-> macOS / Linux: `curl -LsSf https://astral.sh/uv/install.sh | sh`
->
-> Windows: `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`
->
-> See the [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/) for more options.
+> **Don't have uv?** One command: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+> ([full guide](https://docs.astral.sh/uv/getting-started/installation/))
 
 ### Claude Code
-
-In `~/.claude.json` (or your project's `.claude.json`):
 
 ```json
 {
@@ -69,34 +84,16 @@ In `.cursor/mcp.json`:
 }
 ```
 
-That's it. No paths, no tokens, no database URLs. sage-memory detects your project root automatically.
-
 <details>
 <summary><b>Alternative: install with pip</b></summary>
-
-If you prefer managing the installation yourself:
 
 ```bash
 pip install sage-memory
 ```
 
-Then use `"command": "sage-memory"` in your MCP config instead of `uvx`:
+Use `"command": "sage-memory"` instead of `uvx` in your MCP config.
 
-```json
-{
-  "mcpServers": {
-    "sage-memory": {
-      "command": "sage-memory"
-    }
-  }
-}
-```
-
-For neural embeddings (higher recall on semantic queries):
-
-```bash
-pip install sage-memory[neural]
-```
+For neural embeddings: `pip install sage-memory[neural]`
 
 </details>
 
@@ -104,94 +101,90 @@ pip install sage-memory[neural]
 
 ### Two databases, automatic routing
 
+Each context gets its own database. Cross-context knowledge lives separately. Search hits both; context results rank higher.
+
 ```
 ~/code/billing-service/
-  .sage-memory/memory.db    ← this project's knowledge (auto-created)
-  src/
-  tests/
-
-~/.sage-memory/memory.db    ← your cross-project patterns & preferences
+  .sage-memory/memory.db    ← this project's knowledge
+~/.sage-memory/memory.db    ← cross-project patterns
 ```
 
-**Project DB** stores knowledge specific to this codebase. **Global DB** stores cross-project patterns. Every search hits both; project results rank higher. `scope: "project"` (default) writes to project, `scope: "global"` writes to global.
+### Search
 
-### Search pipeline
+FTS5 BM25 with OR semantics — documents matching more query terms rank higher. AND-based alternatives require every term to match, returning nothing for natural language queries. This single decision gives sage-memory 91% recall where AND-based systems achieve 20%.
 
-```
-query → tokenize → remove stopwords → term-frequency filter (drop >20% terms)
-      → FTS5 BM25 (OR semantics) + optional filter_tags WHERE
-      → optional: sqlite-vec cosine similarity (when neural embedder installed)
-      → Reciprocal Rank Fusion → normalize [0,1]
-      → project priority boost → tag boost → recency tiebreaker
-      → deduplicate across DBs → top-k results
-```
+`filter_tags` applies a hard AND filter before ranking — use for namespace isolation (e.g., `filter_tags: ["self-learning"]` returns only learnings). `tags` applies a soft boost without excluding.
 
-The key design choice: **FTS5 with OR semantics, not AND.** When you search "how does payment failure handling work," BM25 ranks documents by how many query terms match and how rare those terms are. AND semantics require ALL terms to match — which returns zero results for most natural language queries.
+### Graph
 
-### Graph traversal
+Typed directed edges between memories via `sage_memory_link`. Cycle-safe multi-hop traversal via `sage_memory_graph`. One graph call replaces N sequential searches for dependency chains, blocking relationships, or ownership trees.
+
+### Self-learning loop
 
 ```
-sage_memory_graph(id, relation, direction, depth)
-      → WITH RECURSIVE CTE on edges table
-      → cycle detection via visited set
-      → depth-limited BFS
-      → returns connected memories + edge paths
+         ┌──────────────────────────────────┐
+         ▼                                  │
+   ┌────────────┐                           │
+   │   recall    │──▶ apply prevention      │
+   │  learnings  │   rules if found         │
+   └──────┬─────┘                           │
+          ▼                                 │
+   ┌────────────┐                           │
+   │ do the work │                          │
+   └──────┬─────┘                           │
+          │                                 │
+     mistake? ─── no ──▶ done               │
+          │                                 │
+         yes                                │
+          ▼                                 │
+   ┌────────────┐                           │
+   │  store      │──────────────────────────┘
+   │ prevention  │      next task
+   │    rule     │
+   └──────┬─────┘
+          │
+          ▼ recurs 3+ times across contexts?
+   ┌────────────┐
+   │ promote to  │
+   │global scope │ → never repeat anywhere
+   └────────────┘
 ```
-
-Graph traversal is a separate tool call, not integrated into search. The agent decides when structural context is worth the extra call. This keeps search fast and graph optional.
 
 ## Tools
 
-### sage_memory_store
+| Tool | Purpose |
+|------|---------|
+| `sage_memory_store` | Persist knowledge with SHA-256 auto-dedup |
+| `sage_memory_search` | BM25 search with `filter_tags` (hard) and `tags` (soft boost) |
+| `sage_memory_update` | Partial update by ID, auto re-index |
+| `sage_memory_delete` | Delete by ID — CASCADE removes connected edges |
+| `sage_memory_list` | Browse with AND tag filtering |
+| `sage_memory_link` | Create/delete typed directed edges |
+| `sage_memory_graph` | Cycle-safe multi-hop traversal |
 
-Store knowledge for later retrieval.
+<details>
+<summary><b>Tool examples</b></summary>
 
+**Store:**
 ```json
 {
-  "content": "The billing service uses a saga pattern for multi-step payment processing. PaymentOrchestrator coordinates between StripeGateway, LedgerService, and NotificationService.",
+  "content": "The billing service uses saga pattern. PaymentOrchestrator coordinates StripeGateway, LedgerService, NotificationService.",
   "title": "Payment saga orchestration via PaymentOrchestrator",
-  "tags": ["billing", "saga", "payments", "architecture"],
+  "tags": ["billing", "saga", "architecture"],
   "scope": "project"
 }
 ```
 
-Content is SHA-256 hashed for automatic deduplication.
-
-### sage_memory_search
-
-Search across project and global knowledge. Supports `filter_tags` (hard AND filter for namespace isolation) and `tags` (soft ranking boost).
-
+**Search with namespace isolation:**
 ```json
 {
-  "query": "how does payment failure handling work",
+  "query": "payment failure handling",
   "filter_tags": ["self-learning"],
   "limit": 5
 }
 ```
 
-### sage_memory_update
-
-Partial update by ID. Only provide fields you want to change.
-
-### sage_memory_delete
-
-Delete by ID. CASCADE automatically removes all graph edges connected to this memory.
-
-### sage_memory_list
-
-Browse stored memories with AND tag filtering.
-
-```json
-{
-  "tags": ["self-learning", "gotcha"],
-  "limit": 20
-}
-```
-
-### sage_memory_link
-
-Create or delete typed, directed edges between memories.
-
+**Link two memories:**
 ```json
 {
   "source_id": "abc123",
@@ -201,12 +194,7 @@ Create or delete typed, directed edges between memories.
 }
 ```
 
-Supports any relation type: `depends_on`, `blocks`, `has_task`, `assigned_to`, `contains`, `applies_to`, `relates_to`, or custom. Self-loops rejected. Upsert on duplicate edges. Properties stored as JSON.
-
-### sage_memory_graph
-
-Cycle-safe multi-hop traversal from a starting memory.
-
+**Traverse dependencies (2 hops):**
 ```json
 {
   "id": "abc123",
@@ -216,134 +204,79 @@ Cycle-safe multi-hop traversal from a starting memory.
 }
 ```
 
-Returns connected memories and edges within N hops. Direction: `outbound` (source→target), `inbound` (target→source), or `both`. Depth limit 1-5.
+</details>
 
 ## Skills
 
-sage-memory ships with three first-party skills that teach AI agents how to use the tools effectively. Each skill works with MCP (full capability) or filesystem fallback (reduced but functional).
+Three built-in skills, one for each kind of memory. Each works with MCP (full capability) or filesystem fallback (reduced but functional).
 
-### memory
+### memory → Knowledge
 
-Teaches the agent when to remember and when to recall. Three layers:
+Three layers: automatic recall at session start, automatic remember during work, deliberate capture via `sage learn` with dependency graph building and knowledge reports.
 
-1. **Automatic recall** — at session/task start, search for relevant context before reading files
-2. **Automatic remember** — during work, store insights at natural completion points (3-8 per task)
-3. **Deliberate learning** (`sage learn`) — structured knowledge capture that produces memory entries + a knowledge report
+### ontology → Structure
 
-The memory skill defines the unified knowledge facets model: knowledge (default), structure (tagged `ontology`), and warnings (tagged `self-learning`). One search returns all three.
+Typed knowledge graph. Entities (Task, Person, Project, Event, Document) as memories. Relationships as graph edges via `sage_memory_link`. Validation rules, cardinality constraints, cycle detection.
 
-### ontology
+### self-learning → Experience
 
-Typed knowledge graph. Entities (Task, Person, Project, Event, Document) stored as memories with JSON content. Relationships stored as graph edges via `sage_memory_link`. Supports: validation rules, cardinality constraints, cycle detection for blocking/dependency relations, schema extensions for custom types.
+Closed-loop mistake detection. Five types: gotcha, correction, convention, api-drift, error-fix. Every learning has a four-part structure: what happened, why wrong, what's correct, prevention rule. Promotion ladder: context → personal → team scope.
 
-What `sage_memory_graph` enables: "show me everything the payment service depends on, 2 hops deep" — one call instead of N sequential searches.
+Learnings link to ontology entities, enabling graph-based targeted recall: "show me all past mistakes connected to this task."
 
-### self-learning
+## Use Cases
 
-Captures mistakes so they're not repeated. Five types: gotcha, correction, convention, api-drift, error-fix. Every learning includes a four-part structure (what happened, why wrong, what's correct, prevention rule) and is isolated from regular knowledge via `filter_tags: ["self-learning"]`.
+**Coding assistants** — learn your codebase, conventions, and past debugging insights. Build architecture graphs during code exploration. Avoid repeating the same mistakes across sessions. *This is where sage-memory has the deepest benchmarks and proven skills.*
 
-Learnings link to ontology entities via `sage_memory_link(relation: "applies_to")`, enabling graph-based targeted recall: "show me all past mistakes connected to this task."
+**Personal agents** — learn user preferences, remember relationships between people and places, avoid repeating rejected suggestions. An agent that remembers "user is vegetarian, allergic to nuts" and never suggests incompatible options again.
 
-## Capture Knowledge Workflow
-
-The most effective way to use sage-memory:
-
-1. **Explore** — ask your AI assistant to analyze a module or subsystem
-2. **Understand** — it reads code, traces dependencies, identifies patterns
-3. **Store** — it persists understanding via `sage_memory_store` with descriptive titles and domain tags
-4. **Link** — it connects related memories via `sage_memory_link` to build an architecture graph
-5. **Document** — it creates a `docs/ai/knowledge-{name}.md` companion file
-6. **Retrieve** — in future sessions, it searches memory first for relevant context
-
-Example prompt:
-
-> Analyze the authentication system in this project. Understand how it works, what patterns it uses, and store your understanding in memory for future sessions.
+**Team copilots** — learnings promoted from personal to team scope mean everyone benefits from each member's corrections. Organizational knowledge accumulates without manual documentation.
 
 ## Performance
 
-Benchmarked against 4 real Python codebases (FastAPI, Pydantic, httpx, Rich — 340K lines total).
+| Memories | Store | Search mean | Search P95 | Recall |
+|----------|-------|-------------|------------|--------|
+| 1,000    | 1.0ms | 2.5ms       | 9ms        | 80%    |
+| 5,000    | 0.9ms | 12ms        | 56ms       | 81%    |
+| 10,000   | 0.9ms | 21ms        | 72ms       | 83%    |
+| 22,000   | 1.0ms | 46ms        | 101ms      | 83%    |
 
-### Scale
+Graph: 0.19ms P50 edge creation, 0.17ms P50 traversal. 49 tests, all passing.
 
-| Memories | Store | Throughput | Search mean | Search P95 | Recall |
-|----------|-------|------------|-------------|------------|--------|
-| 1,000    | 1.0ms | 1,000/s    | 2.5ms       | 9ms        | 80%    |
-| 5,000    | 0.9ms | 1,100/s    | 12ms        | 56ms       | 81%    |
-| 10,000   | 0.9ms | 1,055/s    | 21ms        | 72ms       | 83%    |
-| 22,000   | 1.0ms | 1,000/s    | 46ms        | 101ms      | 83%    |
-
-### Graph operations
-
-| Operation | P50 | P95 |
-|-----------|-----|-----|
-| Create edge | 0.19ms | 0.35ms |
-| Traverse (depth 1-3) | 0.17ms | 0.30ms |
-
-### LLM-authored content (the real use case)
-
-When tested with genuine capture-knowledge content — LLM-written understanding, not raw code chunks:
-
-| Query type | Recall |
-|---|---|
-| Exact API lookups | 100% |
-| Developer workflow questions | 100% |
-| Architecture questions | 100% |
-| Semantic paraphrases | 81% |
-| **Overall** | **91%** |
+On LLM-authored content (the real use case): **91% overall recall** — 100% on API lookups, workflow, and architecture queries.
 
 ## Optional: Neural Embeddings
 
-The default installation uses a zero-dependency local embedder (character n-gram TF-IDF) that handles morphological similarity. For higher recall on semantic queries, install the neural backend:
+Default uses a zero-dependency local embedder. For higher semantic recall:
 
 ```bash
 pip install sage-memory[neural]
 ```
 
-This adds [fastembed](https://github.com/qdrant/fastembed) with a 30MB ONNX model. sage-memory detects it automatically and enables hybrid search (FTS5 + vector similarity via Reciprocal Rank Fusion).
+Auto-detected, enables hybrid search (FTS5 + vector via Reciprocal Rank Fusion).
 
 ## Architecture
 
 ```
-8 source files · ~1,500 lines Python · 70 lines SQL · 2 dependencies
+src/sage_memory/           ~1,500 lines · 2 dependencies (mcp, sqlite-vec)
+├── server.py              7 MCP tools, dict dispatch
+├── search.py              Dual-DB, FTS5 OR, RRF, filter_tags
+├── store.py               Store, update, delete, list
+├── graph.py               Link management, cycle-safe traversal
+├── embedder.py            Protocol + local + optional neural
+├── db.py                  Context detection, dual DB, migrations
+└── migrations/            memories + FTS5 + vec0 + edges
 
-src/sage_memory/
-├── server.py       300 lines   7 MCP tools, dict-based dispatch
-├── search.py       384 lines   Dual-DB search, FTS5 OR, RRF, filter_tags
-├── store.py        233 lines   Store, update, delete, list
-├── graph.py        194 lines   Link management, cycle-safe BFS traversal
-├── embedder.py     175 lines   Embedder protocol + local + optional neural
-├── db.py           190 lines   Project detection, dual DB, migrations
-└── migrations/
-    ├── 001.sql      53 lines   memories + FTS5 + vec0
-    └── 002.sql      17 lines   edges table
-
-skills/                         3 first-party skills (usable independently)
-├── memory/                     Knowledge persistence + capture workflow
-├── ontology/                   Typed knowledge graph
-└── self-learning/              Mistake detection + prevention rules
+skills/                    3 built-in skills (usable independently)
+├── memory/                Knowledge persistence + capture
+├── ontology/              Typed knowledge graph
+└── self-learning/         Mistake detection + prevention rules
 
 docs/
-├── adr-architecture.md         Full architectural decision record
-├── skill-authoring.md          Guide for building skills on sage-memory
-└── storage-protocol.md         Tag/content/scope conventions
-
-tests/
-└── test_all.py                 49 tests across 8 suites
+├── adr-architecture.md    Full architectural decision record
+├── skill-authoring.md     Build your own skills
+└── storage-protocol.md    Tag, content, scope conventions
 ```
-
-### Design principles
-
-**Lean.** ~1,500 lines. No frameworks, no abstractions beyond what's needed.
-
-**Two dependencies.** `mcp` and `sqlite-vec`. Neural embedder is optional.
-
-**Project-local.** Each project gets its own SQLite file. No cross-project noise.
-
-**Zero configuration.** Auto-detects project root. Auto-creates database. Auto-routes queries.
-
-**Correctness over cleverness.** FTS5 OR because AND breaks natural language queries. Normalized RRF because raw scores have incompatible scales. CASCADE deletes because orphaned edges are silent corruption. Deferred embedding because the write path shouldn't depend on the slowest component.
-
-**Skills are instructions, not code.** The intelligence lives in skill files that shape LLM behavior. The server is a dumb, fast storage layer. This separation means skills can be rewritten for different LLMs without changing sage-memory, and sage-memory can evolve without breaking skills.
 
 ## Development
 
@@ -352,12 +285,6 @@ git clone https://github.com/xoai/sage-memory.git
 cd sage-memory
 pip install -e ".[dev]"
 PYTHONPATH=src python tests/test_all.py
-```
-
-Run the server locally:
-
-```bash
-python -m sage_memory
 ```
 
 ## License

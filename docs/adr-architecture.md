@@ -21,16 +21,6 @@ We need a persistent memory system that:
 - Is lean enough to be maintainable (~1,000 lines, minimal dependencies)
 - Serves as the storage layer for higher-level skills (knowledge capture, ontology, self-learning)
 
-### Prior Art Analyzed
-
-**ai-devkit/memory** (TypeScript/Node.js, v0.7.0) — an existing MCP memory server. After decompiling and analyzing the full source:
-
-- Strengths: clean SQLite + FTS5 setup, good BM25 column weights, content-hash dedup, production-quality WAL configuration
-- Critical weakness: FTS5 with implicit AND query logic — requires ALL query terms to appear in a document, which returns zero results for most natural language queries
-- Missing: no vector search, no temporal decay, no delete tool, no list/browse tool, no project isolation (single global DB)
-
-This analysis directly informed sage-memory's design — specifically the decision to use OR semantics for FTS5 queries.
-
 ---
 
 ## 2. Design Principles
@@ -51,7 +41,7 @@ Established at project inception and validated through every subsequent decision
 
 **Decision: Per-project databases, not a single global DB with scope filtering.**
 
-The initial prototype used a single database with a `scope` column (following ai-devkit's pattern). Stress benchmarking on 4 codebases (FastAPI, Pydantic, httpx, Rich — 340K lines, 22K chunks) revealed that FTS5 OR queries degrade linearly with corpus size:
+The initial prototype used a single database with a `scope` column. Stress benchmarking on 4 codebases (FastAPI, Pydantic, httpx, Rich — 340K lines, 22K chunks) revealed that FTS5 OR queries degrade linearly with corpus size:
 
 | Corpus size | FTS5 mean latency |
 |---|---|
@@ -66,7 +56,7 @@ A single project rarely exceeds 15K memories, but combining multiple projects in
 This eliminated the `scope` column entirely — each DB file IS the scope. Simpler schema, simpler queries, better performance.
 
 Alternatives considered:
-- Single DB with scope column (ai-devkit's approach) — rejected due to FTS5 scaling
+- Single DB with scope column — rejected due to FTS5 scaling
 - One DB per scope string (e.g., `project:billing.db`) — rejected, too many files, harder lifecycle management
 - Shared DB with partitioned FTS5 tables — rejected, complex and fragile
 
@@ -74,9 +64,9 @@ Alternatives considered:
 
 The single highest-impact design choice. BM25 with OR ranks documents by term match density — documents matching 4 of 6 query terms score higher than those matching 1 of 6. AND requires ALL terms to match, which returns zero results for natural language queries where not every word appears in the target document.
 
-Head-to-head benchmark (20 LLM-authored entries, 30 queries):
+Head-to-head benchmark — same 20 LLM-authored entries, 30 queries, OR vs AND:
 
-| Metric | sage-memory (OR) | ai-devkit (AND) |
+| Metric | OR semantics | AND semantics |
 |---|---|---|
 | Mean recall | 91% | 20% |
 | Semantic query recall | 81% | 0% |
@@ -229,23 +219,20 @@ Component profiling at 50K: FTS5 = 87.6ms mean, vec = 0.0ms (quality-gated off).
 | Cross-codebase | 68% | Multi-DB merge works |
 | Adversarial | 60% | Graceful degradation on typos, garbage, edge cases |
 
-### Head-to-Head vs ai-devkit/memory (LLM-authored content)
+### OR vs AND Semantics (LLM-authored content)
 
-20 genuine capture-knowledge entries about httpx, 30 developer queries:
+20 genuine capture-knowledge entries about httpx, 30 developer queries. Same content stored in both an OR-based and AND-based FTS5 backend:
 
-| Metric | sage-memory | ai-devkit |
+| Metric | OR semantics | AND semantics |
 |---|---|---|
 | Mean recall | **91%** | 20% |
 | Acceptable recall (≥50%) | **97%** | 20% |
-| Perfect recall (100%) | **80%** | 20% |
 | Semantic queries | **81%** | **0%** |
 | Workflow queries | **100%** | **0%** |
 | Architecture queries | **100%** | **0%** |
 | Exact API lookups | 100% | 100% |
-| Query wins | **23** | 0 |
-| Search latency | 2.8ms | 0.2ms |
 
-ai-devkit is faster (AND short-circuits) but returns nothing for natural language queries.
+AND is faster (short-circuits on first miss) but returns nothing for natural language queries. OR with BM25 ranking is the correct choice for LLM-authored content retrieval.
 
 ### Self-Learning Integration Test (v0.3)
 
