@@ -1,11 +1,13 @@
 """sage-memory MCP server.
 
-5 tools, namespaced to avoid collision with client built-in memory:
+7 tools, namespaced to avoid collision with client built-in memory:
   sage_memory_store   — persist understanding, decisions, patterns
   sage_memory_search  — find relevant knowledge across project + global
   sage_memory_update  — refine existing knowledge
   sage_memory_delete  — remove outdated knowledge
   sage_memory_list    — browse what's stored
+  sage_memory_link    — create typed edges between memories
+  sage_memory_graph   — traverse relationships across memories
 
 Tool descriptions guide the LLM to produce high-quality, retrievable content.
 The server auto-detects the project from the working directory.
@@ -22,6 +24,7 @@ import mcp.types as types
 
 from .store import store, update, delete, list_memories
 from .search import search, flush_all_access
+from .graph import link, graph
 from .db import get_project_name, close_all
 
 logger = logging.getLogger("sage-memory")
@@ -176,6 +179,72 @@ TOOLS = [
             },
         },
     ),
+    types.Tool(
+        name="sage_memory_link",
+        description=(
+            "Create or delete a typed relationship (edge) between two memories. "
+            "Use this to express: dependencies (A depends_on B), containment "
+            "(project has_task task), ownership (task assigned_to person), "
+            "blocking (task blocks task), or any directed relationship. "
+            "Edges are automatically cleaned up when either memory is deleted."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "source_id": {"type": "string", "description": "ID of the source memory (edge starts here)."},
+                "target_id": {"type": "string", "description": "ID of the target memory (edge points here)."},
+                "relation": {
+                    "type": "string",
+                    "description": "Relationship type: depends_on, has_task, assigned_to, blocks, part_of, contains, relates_to, or custom.",
+                },
+                "properties": {
+                    "type": "object",
+                    "description": "Optional JSON properties on the edge (confidence, notes, etc.).",
+                },
+                "delete": {
+                    "type": "boolean",
+                    "description": "If true, delete the edge instead of creating it.",
+                },
+                "scope": {
+                    "type": "string", "enum": ["project", "global"],
+                    "description": "Which database (default: project).",
+                },
+            },
+            "required": ["source_id", "target_id", "relation"],
+        },
+    ),
+    types.Tool(
+        name="sage_memory_graph",
+        description=(
+            "Traverse relationships from a starting memory. Returns connected "
+            "memories and edges within the specified depth. Use to explore: "
+            "dependency chains, project task trees, blocking relationships, "
+            "or any graph structure built with sage_memory_link."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "id": {"type": "string", "description": "Starting memory ID."},
+                "relation": {
+                    "type": "string",
+                    "description": "Optional — only follow edges of this relation type.",
+                },
+                "direction": {
+                    "type": "string", "enum": ["outbound", "inbound", "both"],
+                    "description": "outbound (source→target), inbound (target→source), or both. Default: outbound.",
+                },
+                "depth": {
+                    "type": "integer",
+                    "description": "Max traversal hops (1-5, default 1).",
+                },
+                "scope": {
+                    "type": "string", "enum": ["project", "global"],
+                    "description": "Which database (default: project).",
+                },
+            },
+            "required": ["id"],
+        },
+    ),
 ]
 
 # Dict-based dispatch
@@ -185,6 +254,8 @@ HANDLERS = {
     "sage_memory_update": update,
     "sage_memory_delete": delete,
     "sage_memory_list": list_memories,
+    "sage_memory_link": link,
+    "sage_memory_graph": graph,
 }
 
 

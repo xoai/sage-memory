@@ -2,6 +2,32 @@
 
 All notable changes to sage-memory will be documented in this file.
 
+## [0.5.0] — 2025-03-18
+
+### Added
+
+- **Graph support** via `edges` table (migration 002) with CASCADE deletes, JSON properties, and composite unique constraint `(source_id, target_id, relation)`.
+- **`sage_memory_link`** tool — create, update, or delete typed directed edges between memories. Supports: `depends_on`, `has_task`, `assigned_to`, `blocks`, `part_of`, `contains`, `relates_to`, or any custom relation type. Self-loops rejected. Upsert on duplicate edges. Properties stored as JSON.
+- **`sage_memory_graph`** tool — cycle-safe BFS traversal from a starting memory. Supports: outbound, inbound, or both directions. Depth limit 1-5. Optional relation type filter. Returns discovered nodes (full memory data) and edges (with properties).
+- **Comprehensive test suite** — 49 tests across 8 suites: CRUD, dual-DB merge, filter_tags isolation, graph CRUD, graph traversal (with cycle detection), ontology patterns, self-learning patterns, and performance benchmarks.
+
+### Why
+
+The ontology skill encodes entity relationships (Task blocks Task, Project has_task Task) as tagged memory entries. Multi-hop traversal requires N sequential MCP calls — one per hop. With `sage_memory_graph`, the same 2-hop query is a single call. Entity deletion required manual cleanup of relation entries; CASCADE now handles it automatically.
+
+Design choice: Approach B (property edges with JSON metadata) over 5 alternatives evaluated in the ADR. Key tradeoffs: CASCADE integrity over triple-store flexibility, JSON properties over fixed columns, memory-to-memory only (external entities represented as memories by convention).
+
+### Performance
+
+| Operation | P50 | P95 |
+|---|---|---|
+| Create edge | 0.19ms | 0.35ms |
+| Graph traversal (depth 1-3) | 0.17ms | 0.30ms |
+| Store (unchanged) | 0.32ms | 0.75ms |
+| Search (unchanged) | 0.88ms | 4.60ms |
+
+All 49 tests pass. Total codebase: 1,487 lines Python + 70 lines SQL.
+
 ## [0.4.0] — 2025-03-18
 
 ### Changed
