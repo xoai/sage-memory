@@ -48,7 +48,7 @@ In `~/.claude.json` (or your project's `.claude.json`):
 ```json
 {
   "mcpServers": {
-    "memory": {
+    "sage-memory": {
       "command": "uvx",
       "args": ["sage-memory"]
     }
@@ -63,7 +63,7 @@ In `.cursor/mcp.json`:
 ```json
 {
   "mcpServers": {
-    "memory": {
+    "sage-memory": {
       "command": "uvx",
       "args": ["sage-memory"]
     }
@@ -87,7 +87,7 @@ Then use `"command": "sage-memory"` in your MCP config instead of `uvx`:
 ```json
 {
   "mcpServers": {
-    "memory": {
+    "sage-memory": {
       "command": "sage-memory"
     }
   }
