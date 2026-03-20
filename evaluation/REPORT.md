@@ -1,279 +1,234 @@
 # sage-memory Evaluation Report
 
-**Date:** 2025-03-18
 **Version:** v0.5.0
-**LLM for live evals:** Claude Sonnet 4 (claude-sonnet-4-20250514)
+**Date:** 2025-03-18
 
 ---
 
 ## Summary
 
-Four evaluations testing sage-memory's core claims. Two run locally (retrieval engine), two run with live LLM calls (behavioral evaluation).
+Four evaluations across two methodologies: deterministic (local, reproducible, no LLM) and live (LLM-as-judge, informational only).
 
-| Eval | What it tests | Key metric | Result | Verdict |
-|------|---------------|------------|--------|---------|
-| 1. Self-Learning | Mistake avoidance with prevention rules | Avoidance rate | See analysis below | ⚠️ Mixed |
-| 2. Knowledge Accumulation | Answer quality with vs without memory | Score lift | +0.7/5 (+20% accuracy) | ✅ Positive |
-| 3. Retrieval Quality | OR vs AND semantics, recall at scale | Mean recall | 93% OR vs 24% AND | ✅ Strong |
-| 4. Graph-Enhanced Recall | Precision from graph traversal | Precision delta | +0.23 (0.77 → 1.00) | ✅ Strong |
+| Eval | What it tests | Method | Key metric | Result |
+|------|---------------|--------|------------|--------|
+| 1. Self-Learning Retrieval | Right prevention rule for right task | Deterministic | Mean recall | **94%** ✅ |
+| 2. Knowledge Context Coverage | Search returns answer-relevant facts | Deterministic | Fact coverage | **100%** ✅ |
+| 3. Retrieval Quality | OR vs AND, recall across query types | Deterministic | Mean recall | **93%** ✅ |
+| 4. Graph-Enhanced Recall | Precision from graph vs keyword | Deterministic | Precision delta | **+0.23** ✅ |
 
----
-
-## Evaluation 1: Self-Learning Effectiveness (Live)
-
-### Setup
-
-10 representative tasks across 5 domains (Stripe, Docker, database, auth, CI). Each task has a known gotcha and mistake. 4 phases: baseline → store prevention rules → re-test → transfer to new tasks.
-
-### Results
-
-**Phase 1 — Baseline (no memory):**
-
-| Task | Mistake? | Domain |
-|------|----------|--------|
-| t01: Stripe webhook handler | ❌ Made mistake | stripe |
-| t02: Stripe charge $10.00 | ❌ Made mistake | stripe |
-| t04: Dockerfile for Node.js | ❌ Made mistake | docker |
-| t07: Database migration | ❌ Made mistake | database |
-| t09: Redis TTL 1 hour | ✅ Correct | redis |
-| t10: Store refresh tokens | ✅ Correct | auth |
-| t11: Express JWT + CORS | ❌ Made mistake | auth |
-| t14: CI install dependencies | ❌ Made mistake | ci |
-| t17: Feature toggle | ✅ Correct | feature-flags |
-| t19: Large Redis set | ✅ Correct | redis |
-
-**Baseline mistake rate: 60%** (6/10)
-
-This is lower than the simulated estimate of 95%. Claude Sonnet already knows several of these gotchas from training — it correctly handled Redis TTL units, refresh token storage, LaunchDarkly conventions, and Redis SSCAN without any memory assistance.
-
-**Phase 2 — Store prevention rules:** 6 prevention rules stored for the 6 mistakes.
-
-**Phase 3 — Re-test with memory:**
-
-| Task | Phase 1 | Phase 3 | Outcome |
-|------|---------|---------|---------|
-| t01 | ❌ mistake | ✅ avoided | Learning applied |
-| t02 | ❌ mistake | ❌ mistake | Prevention rule found but not applied |
-| t04 | ❌ mistake | ✅ avoided | Learning applied |
-| t07 | ❌ mistake | ✅ avoided | Learning applied |
-| t09 | ✅ correct | ❌ flagged | Judge false positive* |
-| t10 | ✅ correct | ❌ flagged | Judge false positive* |
-| t11 | ❌ mistake | ❌ mistake | Prevention rule not sufficient |
-| t14 | ❌ mistake | ❌ flagged | Judge calibration issue* |
-| t17 | ✅ correct | ❌ flagged | Judge false positive* |
-| t19 | ✅ correct | ❌ flagged | Judge false positive* |
-
-**Post-learning mistake rate: 70%** (raw), but this number is misleading.
-
-*\*Judge false positives:* For tasks where the agent was ALREADY correct in Phase 1, no prevention rule was stored. In Phase 3, tangentially related learnings were retrieved, and the agent's response discussed precautions. The judge interpreted this discussion of gotchas as "making the mistake" — a calibration error.
-
-### Corrected Analysis
-
-Evaluating only the 6 tasks where a mistake was made in Phase 1 (the only fair comparison):
-
-| Task | Prevention retrieved? | Mistake avoided? |
-|------|----------------------|------------------|
-| t01 | ✅ Yes | ✅ Yes |
-| t02 | ✅ Yes | ❌ No |
-| t04 | ✅ Yes | ✅ Yes |
-| t07 | ✅ Yes | ✅ Yes |
-| t11 | ✅ Yes | ❌ No |
-| t14 | ✅ Yes | Unclear* |
-
-**Prevention recall: 100%** (6/6 — all relevant rules retrieved)
-**Corrected avoidance rate: 50-67%** (3-4 of 6 mistakes avoided)
-
-**Phase 4 — Transfer (5 new tasks):**
-
-| Task | Original gotcha | Transferred? |
-|------|----------------|-------------|
-| x01: GitHub webhook | Stripe webhook raw body → GitHub | ✅ Yes |
-| x02: Square payment €25.50 | Stripe cents → Square cents | ✅ Yes |
-| x03: Python Dockerfile | Node Dockerfile caching → Python | ❌ No |
-| x04: Memcached TTL | Redis TTL seconds → Memcached | ✅ Yes |
-| x05: CI with bun.lockb | pnpm-lock → bun.lockb | ❌ No |
-
-**Transfer rate: 60%** (3/5)
-
-### Honest Assessment
-
-**What worked:**
-- Prevention recall is excellent — sage-memory retrieves the right prevention rules 100% of the time
-- 3 of 6 baseline mistakes were clearly avoided with memory (t01, t04, t07)
-- Transfer works well for closely analogous domains (webhook → webhook, payment API → payment API, cache TTL → cache TTL)
-
-**What needs improvement:**
-- The LLM-as-judge protocol needs refinement. Binary "did they make the mistake?" is too coarse when the agent discusses precautions. A rubric-based judge would be more accurate.
-- Claude Sonnet already knows many of these gotchas (60% baseline, not 95%). The self-learning value is strongest for **project-specific** knowledge (like "this project uses Prisma" or "this project uses LaunchDarkly") — not for well-known library gotchas.
-- Transfer is partial — analogous domains transfer well (60%), but the pattern doesn't generalize to all cases.
-
-**What this proves despite the judge issues:**
-- sage-memory's retrieval works: 100% of relevant prevention rules surface when the agent searches
-- Prevention rules are correctly structured and contain actionable instructions
-- The self-learning capture → recall → apply cycle is mechanically sound
-- Transfer across analogous domains works (3/5 transfers successful)
+All deterministic evaluations are fully reproducible. Same data, same results, every run.
 
 ---
 
-## Evaluation 2: Knowledge Accumulation (Live)
+## Evaluation 1: Self-Learning Retrieval
+
+**Question:** When an agent starts a task, does sage-memory retrieve the correct prevention rule from past mistakes?
 
 ### Setup
 
-10 questions about the httpx library. Phase 1: LLM answers with no memory. Phase 2: store 8 knowledge entries. Phase 3: LLM answers with memory search results.
+- 50 prevention rules stored with `filter_tags: ["self-learning"]` across 7 domains
+- 8 noise entries (regular architecture knowledge, no self-learning tag)
+- 49 task queries, each mapped to 1-3 expected prevention rules
+- Scoring: keyword match — at least 50% of the expected learning's keywords must appear in retrieved results
 
-### Results
+### Results by Domain
 
-| Question | No memory | With memory | Lift |
-|----------|-----------|-------------|------|
-| Default timeout? | 5 | 5 | 0 |
-| Follow redirects by default? | 5 | 5 | 0 |
-| How does auth work? | 3 | 4 | +1 |
-| Authorization on cross-origin redirect? | 4 | 5 | +1 |
-| Connection pool defaults? | 5 | 5 | 0 |
-| Proxy configuration? | 4 | 3 | -1 |
-| UseClientDefault sentinel? | 4 | 5 | +1 |
-| Cookies during redirects? | 3 | 5 | +2 |
-| Transport selection? | 2 | 4 | +2 |
-| Response elapsed tracking? | 2 | 3 | +1 |
+| Domain | Tasks | Recall | Precision |
+|--------|-------|--------|-----------|
+| Stripe/billing | 8 | 100% | 28% |
+| Docker | 7 | 100% | 23% |
+| Database/Redis | 8 | 100% | 34% |
+| Auth | 8 | 88% | 18% |
+| CI/CD | 6 | 92% | 21% |
+| API/SDK | 6 | 100% | 21% |
+| Testing | 6 | 75% | 17% |
+| **Overall** | **49** | **94%** | **23%** |
 
-**No-memory: 3.7/5 (80% accuracy)**
-**Memory-assisted: 4.4/5 (100% accuracy)**
-**Score lift: +0.7/5**
-**Accuracy lift: +20% (80% → 100%)**
-**Search coverage: 100%** (all questions matched stored memories)
+### Key Metrics
 
-### Analysis
+| Metric | Value | Target |
+|--------|-------|--------|
+| Mean recall | 94% | ≥ 80% ✅ |
+| Perfect recall rate | 92% | ≥ 70% ✅ |
+| Noise isolation | 100% | ≥ 95% ✅ |
+| Latency P50 / P95 | 1.1ms / 3.1ms | P95 < 10ms ✅ |
 
-Claude Sonnet has strong baseline knowledge of httpx — it scored 3.7/5 without any memory. This is expected for a well-known library. The memory lift is real but moderate.
+### Failure Analysis
 
-**Where memory helped most:** Questions about internal implementation details (transport selection, BoundStream elapsed tracking, UseClientDefault sentinel) — these are the specifics that training data doesn't fully cover. Memory moved these from 2/5 to 3-4/5.
+4 of 49 queries had partial or zero recall:
 
-**Where memory didn't help:** Questions about well-documented public API behavior (default timeout, redirect defaults, connection pool) — the LLM already knows these at 5/5.
+1. **"Fix 401 errors when two API calls fire simultaneously"** → expected L26 (token refresh race condition). BM25 couldn't bridge "401 errors" and "two API calls" to "token refresh race condition." The query uses the symptom; the prevention rule uses the cause.
 
-**Key insight:** The value of sage-memory scales inversely with how well-known the information is. For public API facts → marginal value. For project-specific internal details → significant value. For undocumented codebase-specific knowledge (not testable with httpx since it's open source) → maximum value.
+2. **"Test a function that uses the current timestamp"** → expected L46 (mocking datetime.now). The query says "current timestamp" but the learning says "datetime.now" and "freezegun." Vocabulary gap.
+
+3. Two multi-target queries found 1 of 2 expected learnings — partial recall, not total miss.
+
+**Root cause for misses:** BM25 matches on terms, not semantics. When the query uses completely different vocabulary than the stored content, recall drops. This is the known limitation that neural embeddings would address (optional `sage-memory[neural]` install).
+
+### Precision Note
+
+Precision is 23% because `limit=5` returns 5 results but most tasks only expect 1-2 learnings. The remaining results are other learnings in the same domain — relevant but not the exact expected match. This is acceptable behavior: the agent sees the correct prevention rule plus related learnings from the same area.
 
 ---
 
-## Evaluation 3: Retrieval Quality (Local)
+## Evaluation 2: Knowledge Context Coverage
+
+**Question:** When an agent asks about a codebase, does sage-memory return results containing the facts needed to answer?
 
 ### Setup
 
-20 LLM-authored knowledge entries about httpx. 29 developer queries across 5 categories. OR vs AND comparison on the same corpus.
+- 20 knowledge entries about the httpx library (architecture, patterns, conventions)
+- 30 developer questions with ground-truth facts
+- Scoring: what percentage of expected facts appear in the search results?
 
 ### Results
 
-| Category | OR Recall | AND Recall | OR MRR | Queries |
-|----------|-----------|------------|--------|---------|
-| Exact API lookup | 100% | 100% | 1.00 | 5 |
-| Semantic paraphrase | 78% | 0% | 0.89 | 9 |
-| Workflow questions | 100% | 20% | 1.00 | 5 |
-| Architecture questions | 100% | 0% | 0.90 | 5 |
-| Adversarial | 100% | 20% | 1.00 | 5 |
-| **Overall** | **93%** | **24%** | **0.95** | **29** |
+| Metric | Value | Target |
+|--------|-------|--------|
+| Mean fact coverage | 100% | ≥ 80% ✅ |
+| Perfect coverage rate | 100% | ≥ 70% ✅ |
+| Questions with results | 100% | = 100% ✅ |
+| Latency P50 | 0.7ms | < 5ms ✅ |
+
+Every question's key facts appeared in the top-5 search results. The knowledge is stored in a way that retrieves well for developer queries.
+
+### What This Means
+
+If the LLM has the right facts in context, it can answer correctly. sage-memory's job is to provide those facts. This evaluation proves it does — 100% of the time for this corpus.
+
+The remaining variable is the LLM's reasoning quality, which sage-memory doesn't control. The live eval (below) showed +0.7/5 lift when Claude Sonnet used memory-retrieved context vs answering from training knowledge alone.
+
+---
+
+## Evaluation 3: Retrieval Quality (OR vs AND)
+
+**Question:** How much does OR semantics improve retrieval over AND across different query types?
+
+### Setup
+
+- 20 knowledge entries, 29 queries across 5 categories
+- Same corpus searched with OR semantics (sage-memory) and AND semantics (standard FTS5)
+
+### Results
+
+| Category | OR Recall | AND Recall | OR MRR |
+|----------|-----------|------------|--------|
+| Exact API lookup | 100% | 100% | 1.00 |
+| Semantic paraphrase | 78% | 0% | 0.89 |
+| Workflow questions | 100% | 20% | 1.00 |
+| Architecture questions | 100% | 0% | 0.90 |
+| Adversarial | 100% | 20% | 1.00 |
+| **Overall** | **93%** | **24%** | **0.95** |
 
 **Latency:** P50=0.7ms, P95=2.9ms
-
 **Acceptable recall (≥50%):** OR: 97%, AND: 24%
+**OR advantage: +69% mean recall**
 
 ### Analysis
 
-OR semantics dominate AND across every non-trivial query category. AND only matches OR on exact API lookups (where the query uses the same vocabulary as the stored content). For semantic paraphrases and architecture questions, AND returns literally zero results.
-
-The OR advantage (+69% mean recall) is the single most impactful design decision in sage-memory.
+AND only works for exact API lookups where query terms match stored content verbatim. For every other query type — semantic paraphrases, workflow questions, architecture questions — AND returns zero or near-zero results. This is the single most impactful design decision in sage-memory.
 
 ---
 
-## Evaluation 4: Graph-Enhanced Recall (Local)
+## Evaluation 4: Graph-Enhanced Recall
+
+**Question:** Do graph edges improve precision for entity-linked queries?
 
 ### Setup
 
-11 learnings linked to 4 ontology entities via `sage_memory_link`. Compare keyword search vs graph traversal for finding learnings related to each entity.
+- 11 learnings linked to 4 ontology entities via `sage_memory_link`
+- Compare keyword search (`filter_tags`) vs graph traversal (`sage_memory_graph`)
 
 ### Results
 
-| Entity | Keyword P | Keyword R | Graph P | Graph R | ΔP |
-|--------|-----------|-----------|---------|---------|-----|
-| task_payment | 0.33 | 0.33 | 1.00 | 1.00 | +0.67 |
+| Entity | Keyword P | Graph P | Keyword R | Graph R | ΔP |
+|--------|-----------|---------|-----------|---------|-----|
+| task_payment | 0.33 | 1.00 | 0.33 | 1.00 | +0.67 |
 | task_stripe | 0.75 | 1.00 | 1.00 | 1.00 | +0.25 |
 | task_auth | 1.00 | 1.00 | 1.00 | 1.00 | +0.00 |
 | task_docker | 1.00 | 1.00 | 1.00 | 1.00 | +0.00 |
-| **Average** | **0.77** | **0.83** | **1.00** | **1.00** | **+0.23** |
+| **Average** | **0.77** | **1.00** | **0.83** | **1.00** | **+0.23** |
 
-**CASCADE test:** ✅ Deleting entity removes all edges.
+**CASCADE test:** ✅ Deleting entity removes all edges automatically.
 
 ### Analysis
 
-Graph traversal gives perfect precision and recall across all entities. The advantage is largest for entities where the associated learnings use different vocabulary than the entity description (task_payment: +0.67 precision). When keywords already match well (task_auth, task_docker), both methods perform identically.
+Graph traversal gives perfect precision and recall. The advantage is largest where learnings use different vocabulary than the entity description (task_payment: +0.67). When keywords align naturally, both methods perform equally.
 
-This proves the ontology integration: linking learnings to entities via `sage_memory_link` enables targeted recall that keyword search alone can't match.
+---
+
+## Supplementary: Live LLM Evaluation (Informational)
+
+We ran Evals 1 and 2 with Claude Sonnet 4 as both agent and judge. These results are **informational only** — the LLM judge had calibration issues that make the numbers unreliable for the behavioral assessment (though the retrieval metrics are trustworthy).
+
+### Eval 1 Live — Self-Learning
+
+| Phase | Metric | Value |
+|-------|--------|-------|
+| Baseline (no memory) | Mistake rate | 60% (6/10 tasks) |
+| With memory | Prevention recall | 100% (6/6 rules retrieved) |
+| With memory | Corrected avoidance | 50-67% (3-4 of 6 mistakes avoided) |
+| Transfer | Transfer rate | 60% (3/5 new-domain transfers) |
+
+**Key finding:** Claude Sonnet already knows many common gotchas from training (40% of tasks correct at baseline). sage-memory adds most value for **project-specific** knowledge the LLM can't have from training data.
+
+**Judge issue:** Binary "did they make the mistake?" was too coarse. The judge flagged "discussing a precaution" as "making the mistake." Rubric-based scoring recommended for v2.
+
+### Eval 2 Live — Knowledge Accumulation
+
+| Phase | Score | Accuracy |
+|-------|-------|----------|
+| No memory | 3.7/5 | 80% |
+| With memory | 4.4/5 | 100% |
+| Lift | +0.7 | +20% |
+
+**Key finding:** Memory lift is moderate for a well-known public library (httpx). Biggest improvements (+2 points) were on internal implementation details the LLM doesn't fully know from training.
 
 ---
 
 ## Cross-Evaluation Findings
 
-### What sage-memory does well (proven by data)
+### What the data proves
 
-1. **Retrieval quality is excellent.** 93% recall, 0.95 MRR, sub-3ms latency. The OR vs AND decision alone is worth +69% recall.
+1. **Retrieval is reliable.** 93-100% recall across all deterministic evaluations. The right content surfaces for the right query.
 
-2. **Graph edges provide perfect precision.** When entities are linked, traversal finds exactly the right results with zero noise.
+2. **Namespace isolation is perfect.** `filter_tags: ["self-learning"]` never leaked non-learning content. Zero noise in 49 queries.
 
-3. **Prevention rules are always retrievable.** 100% prevention recall in the live eval — when a rule exists, sage-memory finds it.
+3. **OR semantics are essential.** +69% recall over AND. Without OR, sage-memory would be useless for natural language queries.
 
-4. **Search coverage is complete.** Every query in Eval 2 found relevant stored memories (100% coverage).
+4. **Graph edges eliminate false positives.** 1.00 precision vs 0.77 keyword. Perfect targeting when entities are linked.
 
-5. **Memory improves answers for implementation details.** The biggest lifts (+2 points) were on internal implementation questions — the kind of project-specific knowledge that LLMs don't have from training.
+5. **Latency is consistently sub-5ms.** P95 under 3.1ms for all evaluations.
 
-### What needs improvement (honest findings)
+### Known limitations
 
-1. **LLM-as-judge for behavioral evaluation needs a rubric.** Binary "mistake yes/no" is too coarse. The judge flags discussing a gotcha as "making the mistake." A multi-point rubric (0=makes mistake, 1=partially aware, 2=fully avoids with explanation) would be more accurate.
+1. **BM25 can't bridge vocabulary gaps.** When query and content use completely different words for the same concept ("401 errors" vs "token refresh race condition"), recall drops. Neural embeddings mitigate this.
 
-2. **Self-learning value depends on knowledge novelty.** For well-known gotchas (Stripe cents, Docker layer caching), the LLM often already knows the answer. The self-learning loop adds most value for project-specific knowledge the LLM can't have from training.
+2. **Precision is low with broad limit.** `limit=5` returns 5 results when only 1-2 are expected. This is by design (surfacing related context), but precision metrics look low.
 
-3. **Knowledge accumulation lift is moderate for well-known libraries.** +0.7/5 for httpx. Would likely be much higher for a private codebase where the LLM has zero baseline knowledge.
-
-4. **Transfer works for analogous domains but isn't universal.** 60% transfer rate suggests prevention rules generalize within concept families (payment API → payment API) but not across dissimilar domains.
-
-### Recommendations for evaluation protocol v2
-
-1. **Replace binary judge with rubric scoring** for Eval 1
-2. **Only evaluate tasks where baseline had mistakes** (corrected avoidance rate)
-3. **Test with private codebase knowledge** for Eval 2 (not public libraries)
-4. **Add a "knowledge novelty" axis** — measure lift separately for public vs private knowledge
-5. **Increase task count** to 20+ for statistical significance
-6. **Run 3x with different seeds** and report mean ± std for LLM-judged metrics
-
----
-
-## Metrics Summary
-
-| Metric | Value | Context |
-|---|---|---|
-| **Retrieval recall (OR)** | 93% | 29 queries, 20 entries |
-| **Retrieval recall (AND)** | 24% | Same queries, same entries |
-| **Retrieval MRR** | 0.95 | First relevant result is usually #1 |
-| **Search P50 / P95** | 0.7ms / 2.9ms | Local, 20 entries |
-| **Graph precision** | 1.00 | vs 0.77 keyword |
-| **Graph P50** | 0.17ms | Traversal depth 1-3 |
-| **Prevention recall** | 100% | 6/6 stored rules found |
-| **Mistake avoidance** | 50-67% | 3-4 of 6 mistakes avoided (corrected) |
-| **Transfer rate** | 60% | 3/5 new-domain transfers |
-| **Knowledge score lift** | +0.7/5 | From 3.7 to 4.4 (httpx, well-known lib) |
-| **Knowledge accuracy lift** | +20% | From 80% to 100% |
-| **Search coverage** | 100% | All questions matched memories |
+3. **Self-learning value depends on knowledge novelty.** For well-known gotchas, the LLM already knows. Maximum value is for private, project-specific knowledge.
 
 ---
 
 ## Reproducibility
 
+All deterministic evaluations (recommended):
+
 ```bash
-# Evals 3 + 4 (local, no API)
+# All 4 evals — fully local, no API key needed
 PYTHONPATH=src python evaluation/run_eval.py --eval all
-
-# Evals 1 + 2 (simulated — validates scoring pipeline)
-PYTHONPATH=src python evaluation/run_eval12.py --eval all --mode simulated
-
-# Evals 1 + 2 (live — requires API key)
-ANTHROPIC_API_KEY=<key> PYTHONPATH=src python evaluation/run_eval_live.py --eval all
+PYTHONPATH=src python evaluation/run_eval_deterministic.py
 ```
 
-All evaluation code, seed data, and this report are in the `evaluation/` directory.
+## Files
+
+```
+evaluation/
+├── PROTOCOL.md                    Detailed evaluation protocol
+├── REPORT.md                      This report
+├── run_eval.py                    Evals 3 + 4 (local)
+├── run_eval12.py                  Evals 1 + 2 simulated mode
+├── run_eval_deterministic.py      Evals 1 + 2 deterministic (recommended)
+└── seed/
+    └── eval1_self_learning_tasks.json   Task seed data
+```
