@@ -263,7 +263,7 @@ def _build_fts_query(db, query: str) -> str:
       3. Drop terms that appear in >20% of documents (too common to be useful)
       4. Join remaining terms with OR and prefix matching
     """
-    cleaned = re.sub(r'["\*\^()\-:{}]', " ", query)
+    cleaned = re.sub(r'[^\w\s]', " ", query)
     cleaned = re.sub(r"\b(AND|OR|NOT|NEAR)\b", " ", cleaned, flags=re.IGNORECASE)
     words = [w.lower() for w in cleaned.split()
              if len(w) >= 2 and w.lower() not in _STOP]

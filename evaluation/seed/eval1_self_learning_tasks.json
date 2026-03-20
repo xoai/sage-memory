@@ -1,0 +1,208 @@
+{
+  "description": "20 tasks with known gotchas for self-learning effectiveness evaluation",
+  "domains": ["stripe", "docker", "database", "auth", "ci"],
+  "tasks": [
+    {
+      "id": "t01", "domain": "stripe",
+      "task": "Implement Stripe webhook handler for payment_intent.succeeded events",
+      "gotcha": "Must use raw request body for signature verification — body parser breaks it",
+      "mistake": "Using parsed JSON body for Stripe signature verification",
+      "prevention": "Before implementing any webhook handler that verifies signatures, check whether the SDK requires the raw request body. If yes, ensure body parsing middleware is skipped for that route.",
+      "tags": ["self-learning", "gotcha", "stripe", "webhooks"]
+    },
+    {
+      "id": "t02", "domain": "stripe",
+      "task": "Create a charge for $10.00 using the Stripe API",
+      "gotcha": "Stripe API expects amounts in cents, not dollars",
+      "mistake": "Passing 10.00 instead of 1000 as the amount",
+      "prevention": "Before passing any monetary amount to a payment API, check the unit (cents vs dollars). Stripe, Square, and most payment APIs use the smallest currency unit.",
+      "tags": ["self-learning", "gotcha", "stripe", "payments", "currency"]
+    },
+    {
+      "id": "t03", "domain": "stripe",
+      "task": "Handle webhook retries from Stripe",
+      "gotcha": "Stripe retries webhooks on non-2xx responses with the same event ID",
+      "mistake": "Processing duplicate events without idempotency check",
+      "prevention": "When implementing any webhook handler, add idempotency check using the event ID before processing.",
+      "tags": ["self-learning", "gotcha", "stripe", "webhooks", "idempotency"]
+    },
+    {
+      "id": "t04", "domain": "docker",
+      "task": "Write a Dockerfile for a Node.js application",
+      "gotcha": "COPY before npm install invalidates Docker layer cache on every code change",
+      "mistake": "Copying all files before running npm install",
+      "prevention": "In Dockerfiles, always copy dependency manifests (package.json, lock files) and install dependencies BEFORE copying application code.",
+      "tags": ["self-learning", "gotcha", "docker", "build-cache", "optimization"]
+    },
+    {
+      "id": "t05", "domain": "docker",
+      "task": "Build a Docker image on Apple Silicon Mac",
+      "gotcha": "Some base images don't have ARM64 variants",
+      "mistake": "Using an AMD64-only base image without platform flag",
+      "prevention": "Before writing Dockerfiles, check if the base image supports ARM64. If on Apple Silicon and image is AMD64 only, add --platform flag.",
+      "tags": ["self-learning", "error-fix", "docker", "arm64", "apple-silicon"]
+    },
+    {
+      "id": "t06", "domain": "docker",
+      "task": "Set up multi-stage Docker build for production",
+      "gotcha": "Alpine-based images may lack glibc, breaking native Node modules",
+      "mistake": "Using alpine base without checking native dependency compatibility",
+      "prevention": "Before choosing Alpine as a Docker base image, check if the application uses native modules (bcrypt, sharp, etc.) that require glibc.",
+      "tags": ["self-learning", "gotcha", "docker", "alpine", "native-modules"]
+    },
+    {
+      "id": "t07", "domain": "database",
+      "task": "Write a database migration to add a column",
+      "gotcha": "Project uses Prisma ORM, not raw SQL migrations",
+      "mistake": "Writing a raw SQL migration file instead of updating prisma/schema.prisma",
+      "prevention": "Before creating database changes, check if the project uses an ORM migration tool (Prisma, Alembic, TypeORM). If yes, use its migration system.",
+      "tags": ["self-learning", "correction", "prisma", "database", "migrations"]
+    },
+    {
+      "id": "t08", "domain": "database",
+      "task": "Fix slow API endpoint that loads related records",
+      "gotcha": "N+1 query pattern — loading related objects one by one in a loop",
+      "mistake": "Not using eager loading / prefetch_related for batch loading",
+      "prevention": "Before adding any new queryset that loads related objects, check for N+1 patterns. Use prefetch_related or eager loading.",
+      "tags": ["self-learning", "gotcha", "database", "performance", "n-plus-one"]
+    },
+    {
+      "id": "t09", "domain": "database",
+      "task": "Set Redis cache TTL to 1 hour",
+      "gotcha": "Redis EXPIRE takes seconds, not milliseconds",
+      "mistake": "Setting TTL to 3600000 (milliseconds) instead of 3600 (seconds)",
+      "prevention": "Before setting cache TTL in Redis, check the unit. EXPIRE/SETEX use seconds. PEXPIRE/PSETEX use milliseconds.",
+      "tags": ["self-learning", "correction", "redis", "cache", "ttl"]
+    },
+    {
+      "id": "t10", "domain": "auth",
+      "task": "Store refresh tokens in the frontend application",
+      "gotcha": "Refresh tokens in localStorage are vulnerable to XSS",
+      "mistake": "Storing refresh tokens in localStorage instead of httpOnly cookies",
+      "prevention": "Before implementing token storage, check the token type. Refresh tokens (long-lived) must use httpOnly cookies. Access tokens (short-lived) should use memory only.",
+      "tags": ["self-learning", "gotcha", "auth", "jwt", "security"]
+    },
+    {
+      "id": "t11", "domain": "auth",
+      "task": "Set up Express middleware stack with auth and CORS",
+      "gotcha": "CORS must be registered before auth middleware",
+      "mistake": "Placing JWT validation middleware before CORS handler, breaking preflight OPTIONS requests",
+      "prevention": "When setting up middleware, ensure CORS handler is registered before auth middleware. OPTIONS preflight requests don't carry auth headers.",
+      "tags": ["self-learning", "gotcha", "auth", "cors", "middleware"]
+    },
+    {
+      "id": "t12", "domain": "auth",
+      "task": "Implement token refresh for concurrent API requests",
+      "gotcha": "Concurrent requests can trigger multiple refresh attempts",
+      "mistake": "No lock mechanism — two requests both try to refresh, one fails with 'refresh token already used'",
+      "prevention": "When implementing token refresh, add a lock/mutex to prevent concurrent refresh attempts. Queue pending requests until refresh completes.",
+      "tags": ["self-learning", "gotcha", "auth", "token-refresh", "race-condition"]
+    },
+    {
+      "id": "t13", "domain": "ci",
+      "task": "Set up GitHub Actions pipeline for a pnpm project",
+      "gotcha": "Runner doesn't have pnpm installed by default",
+      "mistake": "Running pnpm install without first setting up pnpm via action",
+      "prevention": "When setting up CI with pnpm, always include pnpm/action-setup action before any pnpm commands.",
+      "tags": ["self-learning", "error-fix", "ci", "github-actions", "pnpm"]
+    },
+    {
+      "id": "t14", "domain": "ci",
+      "task": "Install project dependencies in CI",
+      "gotcha": "Project uses pnpm, not npm",
+      "mistake": "Running npm install when project has pnpm-lock.yaml",
+      "prevention": "Before running any package install command, check for pnpm-lock.yaml, yarn.lock, or bun.lockb in the project root.",
+      "tags": ["self-learning", "correction", "pnpm", "package-manager"]
+    },
+    {
+      "id": "t15", "domain": "stripe",
+      "task": "Display billing statement for PST timezone users",
+      "gotcha": "Billing closes at UTC midnight, display uses PST — 8 hour offset",
+      "mistake": "Showing UTC dates directly without timezone conversion",
+      "prevention": "Before displaying any date/time to users, check if backend stores UTC and frontend needs local timezone conversion.",
+      "tags": ["self-learning", "gotcha", "billing", "timezone", "utc"]
+    },
+    {
+      "id": "t16", "domain": "database",
+      "task": "Upgrade Node.js version for the project",
+      "gotcha": "Prisma engine binaries may not be available for the new Node version",
+      "mistake": "Upgrading Node.js without checking ORM compatibility",
+      "prevention": "Before upgrading Node.js, check ORM compatibility matrix. Prisma, TypeORM, and Sequelize have specific Node version requirements.",
+      "tags": ["self-learning", "error-fix", "prisma", "node", "compatibility"]
+    },
+    {
+      "id": "t17", "domain": "ci",
+      "task": "Add a feature toggle for new billing feature",
+      "gotcha": "Project uses LaunchDarkly, not environment variables",
+      "mistake": "Using process.env.ENABLE_NEW_BILLING instead of LaunchDarkly SDK",
+      "prevention": "Before implementing any feature toggle, check if the project uses a feature flag service (LaunchDarkly, Unleash, etc.). If yes, use it.",
+      "tags": ["self-learning", "convention", "feature-flags", "launchdarkly"]
+    },
+    {
+      "id": "t18", "domain": "auth",
+      "task": "Add error logging to the API error handler",
+      "gotcha": "Error logs must include correlation ID from request context",
+      "mistake": "Logging errors without correlation ID — can't trace logs to requests",
+      "prevention": "Before adding any error logging, include correlationId from the request context as a structured field.",
+      "tags": ["self-learning", "convention", "logging", "observability", "correlation-id"]
+    },
+    {
+      "id": "t19", "domain": "database",
+      "task": "Fetch all members of a large Redis set",
+      "gotcha": "SMEMBERS blocks on large sets — use SSCAN instead",
+      "mistake": "Using SMEMBERS on a 50K-member set, causing 500ms latency spike",
+      "prevention": "Before using SMEMBERS, check set size. If over 1000 members, use SSCAN with COUNT parameter.",
+      "tags": ["self-learning", "gotcha", "redis", "performance", "sets"]
+    },
+    {
+      "id": "t20", "domain": "stripe",
+      "task": "Call the legacy billing v1 API endpoint",
+      "gotcha": "v1 API requires X-Api-Version header",
+      "mistake": "Calling v1 endpoint without version header, getting 400 error",
+      "prevention": "Before calling any versioned API, check if it requires explicit version headers.",
+      "tags": ["self-learning", "gotcha", "billing", "api", "headers"]
+    }
+  ],
+  "transfer_tasks": [
+    {
+      "id": "x01", "domain": "stripe", "source_gotcha": "t01",
+      "task": "Implement GitHub webhook handler for push events",
+      "expected_transfer": "Check if GitHub webhook SDK requires raw body for signature verification"
+    },
+    {
+      "id": "x02", "domain": "stripe", "source_gotcha": "t02",
+      "task": "Create a charge for €25.50 using the Square API",
+      "expected_transfer": "Check payment API unit — Square also uses smallest currency unit"
+    },
+    {
+      "id": "x03", "domain": "docker", "source_gotcha": "t04",
+      "task": "Write a Dockerfile for a Python application with requirements.txt",
+      "expected_transfer": "Copy requirements.txt and install before copying application code"
+    },
+    {
+      "id": "x04", "domain": "database", "source_gotcha": "t08",
+      "task": "Optimize a slow Django view that lists orders with customer details",
+      "expected_transfer": "Check for N+1 queries, use select_related/prefetch_related"
+    },
+    {
+      "id": "x05", "domain": "auth", "source_gotcha": "t10",
+      "task": "Store OAuth tokens in a React Native mobile app",
+      "expected_transfer": "Use secure storage (Keychain/Keystore), not AsyncStorage"
+    },
+    {
+      "id": "x06", "domain": "ci", "source_gotcha": "t14",
+      "task": "Set up CI for a project with bun.lockb",
+      "expected_transfer": "Check lockfile to determine package manager — bun.lockb means use bun"
+    },
+    {
+      "id": "x07", "domain": "database", "source_gotcha": "t09",
+      "task": "Set Memcached expiry to 30 minutes",
+      "expected_transfer": "Check TTL unit — Memcached uses seconds for values under 30 days"
+    },
+    {
+      "id": "x08", "domain": "auth", "source_gotcha": "t11",
+      "task": "Set up Fastify middleware with rate limiting and JWT auth",
+      "expected_transfer": "Register rate limiter before auth — unauthenticated requests need rate limiting too"
+    }
+  ]
+}
