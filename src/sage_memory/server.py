@@ -1,11 +1,11 @@
 """sage-memory MCP server.
 
-5 tools designed for LLM-authored content:
-  memory_store   — persist understanding, decisions, patterns
-  memory_search  — find relevant knowledge across project + global
-  memory_update  — refine existing knowledge
-  memory_delete  — remove outdated knowledge
-  memory_list    — browse what's stored
+5 tools, namespaced to avoid collision with client built-in memory:
+  sage_memory_store   — persist understanding, decisions, patterns
+  sage_memory_search  — find relevant knowledge across project + global
+  sage_memory_update  — refine existing knowledge
+  sage_memory_delete  — remove outdated knowledge
+  sage_memory_list    — browse what's stored
 
 Tool descriptions guide the LLM to produce high-quality, retrievable content.
 The server auto-detects the project from the working directory.
@@ -28,7 +28,7 @@ logger = logging.getLogger("sage-memory")
 
 TOOLS = [
     types.Tool(
-        name="memory_store",
+        name="sage_memory_store",
         description=(
             "Store knowledge for future retrieval. Use this to persist: "
             "code understanding (architecture, patterns, data flows), "
@@ -77,7 +77,7 @@ TOOLS = [
         },
     ),
     types.Tool(
-        name="memory_search",
+        name="sage_memory_search",
         description=(
             "Search stored knowledge using natural language. "
             "Searches this project's memory and global memory, "
@@ -117,7 +117,7 @@ TOOLS = [
         },
     ),
     types.Tool(
-        name="memory_update",
+        name="sage_memory_update",
         description=(
             "Update existing knowledge by ID. Use when understanding deepens, "
             "code changes, or stored information becomes outdated. "
@@ -139,7 +139,7 @@ TOOLS = [
         },
     ),
     types.Tool(
-        name="memory_delete",
+        name="sage_memory_delete",
         description="Delete a memory by ID. Use when knowledge is no longer relevant.",
         inputSchema={
             "type": "object",
@@ -154,7 +154,7 @@ TOOLS = [
         },
     ),
     types.Tool(
-        name="memory_list",
+        name="sage_memory_list",
         description=(
             "Browse stored memories with optional tag filtering. "
             "Shows what knowledge exists, sorted by most recently updated. "
@@ -180,11 +180,11 @@ TOOLS = [
 
 # Dict-based dispatch
 HANDLERS = {
-    "memory_store": store,
-    "memory_search": search,
-    "memory_update": update,
-    "memory_delete": delete,
-    "memory_list": list_memories,
+    "sage_memory_store": store,
+    "sage_memory_search": search,
+    "sage_memory_update": update,
+    "sage_memory_delete": delete,
+    "sage_memory_list": list_memories,
 }
 
 
@@ -205,7 +205,7 @@ def create_server() -> Server:
             result = handler(**(arguments or {}))
 
             # Enrich response with project context
-            if name in ("memory_store", "memory_search", "memory_list"):
+            if name in ("sage_memory_store", "sage_memory_search", "sage_memory_list"):
                 project = get_project_name()
                 if project:
                     result["_project"] = project

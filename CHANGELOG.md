@@ -2,6 +2,23 @@
 
 All notable changes to sage-memory will be documented in this file.
 
+## [0.4.0] — 2025-03-18
+
+### Changed
+
+- **Tool names renamed** from `memory_*` to `sage_memory_*`:
+  - `memory_store` → `sage_memory_store`
+  - `memory_search` → `sage_memory_search`
+  - `memory_update` → `sage_memory_update`
+  - `memory_delete` → `sage_memory_delete`
+  - `memory_list` → `sage_memory_list`
+
+### Why
+
+MCP tool names exist in a flat global namespace within a client session. Claude Code has its own built-in "memory" concept, and tool names like `memory_store` collide with that — causing the agent to dispatch to its internal memory system instead of the MCP tools. The `sage_memory_` prefix makes tool dispatch unambiguous regardless of what other memory systems the client has.
+
+This is a pre-publication breaking change. Skills referencing the old tool names need to update their instructions to use the new names.
+
 ## [0.3.0] — 2025-03-18
 
 ### Added

@@ -145,7 +145,7 @@ Embedding is decoupled from storage. The memory is keyword-searchable the instan
 
 ## Tools
 
-### memory_store
+### sage_memory_store
 
 Store knowledge for later retrieval. The AI assistant calls this when it understands something worth remembering.
 
@@ -160,7 +160,7 @@ Store knowledge for later retrieval. The AI assistant calls this when it underst
 
 Content is SHA-256 hashed for automatic deduplication. If the same content is stored twice, sage-memory returns the existing entry's ID instead of creating a duplicate.
 
-### memory_search
+### sage_memory_search
 
 Search across project and global knowledge using natural language.
 
@@ -174,15 +174,15 @@ Search across project and global knowledge using natural language.
 
 Results include a relevance score, source database label (`project` or `global`), and the full stored content. The assistant uses this to ground its responses in project-specific context.
 
-### memory_update
+### sage_memory_update
 
 Update existing knowledge when understanding deepens or code changes. Only provide fields you want to change. Content changes automatically re-index for search.
 
-### memory_delete
+### sage_memory_delete
 
 Remove knowledge by ID when it becomes outdated or incorrect.
 
-### memory_list
+### sage_memory_list
 
 Browse stored memories with pagination. Useful for auditing what the assistant has learned about your codebase.
 
@@ -192,7 +192,7 @@ sage-memory is most effective with a deliberate knowledge-capture workflow:
 
 1. **Explore**: Ask your AI assistant to analyze a module, service, or subsystem
 2. **Understand**: It reads source code, traces dependencies, identifies patterns
-3. **Store**: It persists its understanding via `memory_store` with a descriptive title, detailed content, and relevant tags
+3. **Store**: It persists its understanding via `sage_memory_store` with a descriptive title, detailed content, and relevant tags
 4. **Document** (optional): It creates a `docs/ai/knowledge-{name}.md` companion file in your repo for human reference
 5. **Retrieve**: On future tasks, it searches memory first for relevant context before reading code
 
