@@ -6,10 +6,18 @@ All notable changes to sage-memory will be documented in this file.
 
 ### Added
 
+- **`sage_memory_set_project`** tool — set the active project for this session. Call first before other tools. Ensures stores and searches hit the correct database when the MCP server stays running across project switches. Priority chain: explicit `set_project` → `SAGE_PROJECT_ROOT` env var → cwd walk-up → global DB. Home directory safety check prevents `.sage-memory/` in `~`.
 - **Graph support** via `edges` table (migration 002) with CASCADE deletes, JSON properties, and composite unique constraint `(source_id, target_id, relation)`.
 - **`sage_memory_link`** tool — create, update, or delete typed directed edges between memories. Supports: `depends_on`, `has_task`, `assigned_to`, `blocks`, `part_of`, `contains`, `relates_to`, or any custom relation type. Self-loops rejected. Upsert on duplicate edges. Properties stored as JSON.
 - **`sage_memory_graph`** tool — cycle-safe BFS traversal from a starting memory. Supports: outbound, inbound, or both directions. Depth limit 1-5. Optional relation type filter. Returns discovered nodes (full memory data) and edges (with properties).
-- **Comprehensive test suite** — 49 tests across 8 suites: CRUD, dual-DB merge, filter_tags isolation, graph CRUD, graph traversal (with cycle detection), ontology patterns, self-learning patterns, and performance benchmarks.
+- **Comprehensive test suite** — 59 tests across 9 suites: CRUD, dual-DB merge, filter_tags isolation, graph CRUD, graph traversal (with cycle detection), ontology patterns, self-learning patterns, set_project isolation, and performance benchmarks.
+- **Evaluation framework** — 4 evaluations: self-learning retrieval (50 tasks), knowledge context coverage (30 questions), OR vs AND retrieval quality (29 queries), graph-enhanced recall (11 learnings, 4 entities).
+
+### Fixed
+
+- **FTS5 query sanitization** — punctuation (`?`, `!`, `.`, etc.) leaked into FTS5 queries causing silent search failures. Now strips all non-word characters (`[^\w\s]`). Discovered during evaluation testing.
+- **Project root caching** — project root was cached once at first access and never re-evaluated. MCP servers staying running across project switches would silently use the wrong database. Now re-evaluates on every tool call (< 1ms cost).
+- **Home directory safety** — `find_project_root` no longer returns `~` as a project root even if `~/.git` exists.
 
 ### Why
 
@@ -26,7 +34,7 @@ Design choice: Approach B (property edges with JSON metadata) over 5 alternative
 | Store (unchanged) | 0.32ms | 0.75ms |
 | Search (unchanged) | 0.88ms | 4.60ms |
 
-All 49 tests pass. Total codebase: 1,487 lines Python + 70 lines SQL.
+All 59 tests pass. Total codebase: ~1,550 lines Python + 70 lines SQL.
 
 ## [0.4.0] — 2025-03-18
 

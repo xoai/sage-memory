@@ -39,8 +39,9 @@ During recall, learnings surface as warnings alongside regular knowledge.
 | Graph-based recall | ✅ `sage_memory_graph` | ❌ skip |
 | Namespace isolation | ✅ `filter_tags` | ✅ `lrn-` filename prefix |
 
-**How to detect backend:** Try calling `sage_memory_search`. If it
-responds, use MCP. If not, use `.sage-memory/` files.
+**How to detect backend:** At session start, call `sage_memory_set_project`
+with the project root. If it responds, use MCP. If not, use
+`.sage-memory/` files.
 
 ## Recall: Search Before You Work
 

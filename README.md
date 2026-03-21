@@ -109,6 +109,8 @@ Each context gets its own database. Cross-context knowledge lives separately. Se
 ~/.sage-memory/memory.db    ← cross-project patterns
 ```
 
+Call `sage_memory_set_project` at session start to tell sage-memory which project you're working on. This ensures stores and searches hit the correct database — especially important when the MCP server stays running across project switches. Without it, sage-memory falls back to detecting the project from the server's working directory.
+
 ### Search
 
 FTS5 BM25 with OR semantics — documents matching more query terms rank higher. AND-based alternatives require every term to match, returning nothing for natural language queries. This single decision gives sage-memory 91% recall where AND-based systems achieve 20%.
@@ -154,6 +156,7 @@ Typed directed edges between memories via `sage_memory_link`. Cycle-safe multi-h
 
 | Tool | Purpose |
 |------|---------|
+| `sage_memory_set_project` | Set active project for this session — call first |
 | `sage_memory_store` | Persist knowledge with SHA-256 auto-dedup |
 | `sage_memory_search` | BM25 search with `filter_tags` (hard) and `tags` (soft boost) |
 | `sage_memory_update` | Partial update by ID, auto re-index |
@@ -164,6 +167,13 @@ Typed directed edges between memories via `sage_memory_link`. Cycle-safe multi-h
 
 <details>
 <summary><b>Tool examples</b></summary>
+
+**Set project context (call first):**
+```json
+{
+  "path": "/home/user/code/billing-service"
+}
+```
 
 **Store:**
 ```json
@@ -259,12 +269,12 @@ Auto-detected, enables hybrid search (FTS5 + vector via Reciprocal Rank Fusion).
 
 ```
 src/sage_memory/           ~1,500 lines · 2 dependencies (mcp, sqlite-vec)
-├── server.py              7 MCP tools, dict dispatch
+├── server.py              8 MCP tools, dict dispatch
 ├── search.py              Dual-DB, FTS5 OR, RRF, filter_tags
 ├── store.py               Store, update, delete, list
 ├── graph.py               Link management, cycle-safe traversal
 ├── embedder.py            Protocol + local + optional neural
-├── db.py                  Context detection, dual DB, migrations
+├── db.py                  Project detection, set_project, dual DB, migrations
 └── migrations/            memories + FTS5 + vec0 + edges
 
 skills/                    3 built-in skills (usable independently)

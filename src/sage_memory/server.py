@@ -1,16 +1,16 @@
 """sage-memory MCP server.
 
-7 tools, namespaced to avoid collision with client built-in memory:
-  sage_memory_store   — persist understanding, decisions, patterns
-  sage_memory_search  — find relevant knowledge across project + global
-  sage_memory_update  — refine existing knowledge
-  sage_memory_delete  — remove outdated knowledge
-  sage_memory_list    — browse what's stored
-  sage_memory_link    — create typed edges between memories
-  sage_memory_graph   — traverse relationships across memories
+8 tools, namespaced to avoid collision with client built-in memory:
+  sage_memory_set_project — set the active project for this session
+  sage_memory_store       — persist understanding, decisions, patterns
+  sage_memory_search      — find relevant knowledge across project + global
+  sage_memory_update      — refine existing knowledge
+  sage_memory_delete      — remove outdated knowledge
+  sage_memory_list        — browse what's stored
+  sage_memory_link        — create typed edges between memories
+  sage_memory_graph       — traverse relationships across memories
 
 Tool descriptions guide the LLM to produce high-quality, retrievable content.
-The server auto-detects the project from the working directory.
 """
 
 from __future__ import annotations
@@ -25,11 +25,36 @@ import mcp.types as types
 from .store import store, update, delete, list_memories
 from .search import search, flush_all_access
 from .graph import link, graph
-from .db import get_project_name, close_all
+from .db import get_project_name, close_all, set_project
 
 logger = logging.getLogger("sage-memory")
 
 TOOLS = [
+    types.Tool(
+        name="sage_memory_set_project",
+        description=(
+            "Set the active project for this session. Call this FIRST before "
+            "any other sage_memory tools, passing the current project's root "
+            "directory path. This ensures all stores and searches use the "
+            "correct project database. Without this call, sage-memory falls "
+            "back to detecting the project from the server's working directory, "
+            "which may be stale if the server was started from a different project."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": (
+                        "Absolute path to the project root directory. "
+                        "This is typically the directory containing .git, "
+                        "pyproject.toml, package.json, or similar markers."
+                    ),
+                },
+            },
+            "required": ["path"],
+        },
+    ),
     types.Tool(
         name="sage_memory_store",
         description=(
@@ -249,6 +274,7 @@ TOOLS = [
 
 # Dict-based dispatch
 HANDLERS = {
+    "sage_memory_set_project": set_project,
     "sage_memory_store": store,
     "sage_memory_search": search,
     "sage_memory_update": update,
@@ -276,7 +302,8 @@ def create_server() -> Server:
             result = handler(**(arguments or {}))
 
             # Enrich response with project context
-            if name in ("sage_memory_store", "sage_memory_search", "sage_memory_list"):
+            if name in ("sage_memory_store", "sage_memory_search",
+                       "sage_memory_list", "sage_memory_set_project"):
                 project = get_project_name()
                 if project:
                     result["_project"] = project

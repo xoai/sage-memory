@@ -220,6 +220,12 @@ PYTHONPATH=src python evaluation/run_eval.py --eval all
 PYTHONPATH=src python evaluation/run_eval_deterministic.py
 ```
 
+Live evaluations (informational):
+
+```bash
+ANTHROPIC_API_KEY=<key> PYTHONPATH=src python evaluation/run_eval_live.py --eval all
+```
+
 ## Files
 
 ```
@@ -229,6 +235,7 @@ evaluation/
 ├── run_eval.py                    Evals 3 + 4 (local)
 ├── run_eval12.py                  Evals 1 + 2 simulated mode
 ├── run_eval_deterministic.py      Evals 1 + 2 deterministic (recommended)
+├── run_eval_live.py               Evals 1 + 2 with LLM (informational)
 └── seed/
     └── eval1_self_learning_tasks.json   Task seed data
 ```

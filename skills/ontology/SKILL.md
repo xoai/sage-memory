@@ -33,9 +33,9 @@ alongside regular knowledge and self-learning entries during recall.
 | Cycle detection | ✅ built into graph tool | ⚠️ manual trace |
 | Browse by type | ✅ `sage_memory_list` | ✅ scan `ont-` files |
 
-**How to detect backend:** Try `sage_memory_search(query: "ontology",
-filter_tags: ["ontology"], limit: 1)`. If it responds, use MCP. If not,
-use `.sage-memory/` files.
+**How to detect backend:** At session start, call `sage_memory_set_project`
+with the project root path. If it responds, use MCP. If not, use
+`.sage-memory/` files.
 
 ## Core Model
 

@@ -31,10 +31,11 @@ filesystem fallback (reduced but functional).
 | Tag filtering | ✅ `filter_tags` | ⚠️ frontmatter scan |
 | Deduplication | ✅ SHA-256 automatic | ⚠️ manual (check filenames) |
 
-**How to detect backend:** At session start, try calling `sage_memory_search`
-with a simple query. If it responds, use MCP for the rest of the session.
-If the call fails or the tool doesn't exist, fall back to `.sage-memory/`
-files. Don't announce either outcome — just use whichever works.
+**How to detect backend:** At session start, call `sage_memory_set_project`
+with the current project root path. If it responds, use MCP for the rest
+of the session. If the call fails or the tool doesn't exist, fall back to
+`.sage-memory/` files. Don't announce either outcome — just use whichever
+works.
 
 ## File Fallback Format
 
@@ -83,8 +84,9 @@ At session start and task start, search for relevant context.
 
 ### When to Search
 
-- **Session start.** Search for architecture, conventions, recent
-  decisions. Memory is cheaper than re-reading source code.
+- **Session start.** First, call `sage_memory_set_project` with the
+  current project root path. Then search for architecture, conventions,
+  recent decisions. Memory is cheaper than re-reading source code.
 - **Task start.** Search for related prior work, debugging insights,
   architecture decisions that constrain the approach.
 - **Skill activation.** Search for prior findings in the activated domain.

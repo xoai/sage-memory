@@ -25,7 +25,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 os.environ["MCP_MEMORY_EMBEDDER"] = "local"
 
-from sage_memory.db import override_project_root, get_db, close_all, get_all_dbs
+from sage_memory.db import (override_project_root, get_db, close_all,
+                           get_all_dbs, set_project, find_project_root)
 from sage_memory.store import store, update, delete, list_memories
 from sage_memory.search import search
 from sage_memory.graph import link, graph
@@ -413,6 +414,63 @@ def test_self_learning_patterns():
 # Suite 8: Performance
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Suite 9: set_project
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def test_set_project():
+    section("Suite 9: set_project")
+
+    # Setup two separate project directories
+    proj_a = TMPDIR / "project-alpha"
+    proj_b = TMPDIR / "project-beta"
+    for p in (proj_a, proj_b):
+        p.mkdir(parents=True, exist_ok=True)
+        (p / ".git").mkdir(exist_ok=True)
+
+    # ── set_project to project A, store a memory ─────────
+    close_all()
+    r = set_project(str(proj_a))
+    check("set_project returns project name", r.get("project") == "project-alpha")
+    check("set_project creates .sage-memory dir", (proj_a / ".sage-memory").is_dir())
+
+    store(content="Alpha architecture uses microservices", title="Alpha arch", tags=["arch"])
+    r = search(query="Alpha architecture")
+    check("search finds in project A", len(r["results"]) > 0 and "Alpha" in r["results"][0]["title"])
+
+    # ── switch to project B, store different memory ──────
+    close_all()
+    r = set_project(str(proj_b))
+    check("set_project switches to B", r.get("project") == "project-beta")
+
+    store(content="Beta uses monolith pattern", title="Beta arch", tags=["arch"])
+    r = search(query="Beta monolith")
+    check("search finds in project B", len(r["results"]) > 0 and "Beta" in r["results"][0]["title"])
+
+    # ── project B should NOT see project A's memories ────
+    r = search(query="Alpha architecture microservices")
+    found_alpha = any("Alpha" in x.get("title", "") for x in r["results"])
+    check("project B does NOT see project A memories", not found_alpha)
+
+    # ── switch back to A, verify data still there ────────
+    close_all()
+    set_project(str(proj_a))
+    r = search(query="Alpha architecture")
+    check("project A data persists after switch", len(r["results"]) > 0 and "Alpha" in r["results"][0]["title"])
+
+    # ── home directory safety check ──────────────────────
+    r = set_project(str(Path.home()))
+    check("set_project rejects home directory", "error" in r)
+
+    # ── nonexistent path rejected ────────────────────────
+    r = set_project("/nonexistent/path/abc123")
+    check("set_project rejects nonexistent path", "error" in r)
+
+    # ── find_project_root home safety ────────────────────
+    result = find_project_root(Path.home())
+    check("find_project_root returns None for home", result is None)
+
+
 def test_performance():
     section("Suite 8: Performance")
 
@@ -495,6 +553,7 @@ def main():
         ("Graph Traversal", test_graph_traversal),
         ("Ontology Patterns", test_ontology_patterns),
         ("Self-Learning Patterns", test_self_learning_patterns),
+        ("set_project", test_set_project),
         ("Performance", test_performance),
     ]
 
