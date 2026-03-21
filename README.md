@@ -1,7 +1,7 @@
 # sage-memory
 
 <p align="center">
-  <img src="sage-memory-logo.svg" alt="Sage Memory - Memory that learns. Not just remembers." width="300" />
+  <img src="sage-memory-logo.svg" alt="Sage Memory - Memory that learns. Not just remembers." width="150" />
 </p>
 
 <p align="center">Persistent wisdom. Structured thought.</p>
