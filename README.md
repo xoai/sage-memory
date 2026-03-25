@@ -125,34 +125,9 @@ Typed directed edges between memories via `sage_memory_link`. Cycle-safe multi-h
 
 ### Self-learning loop
 
-```
-         ┌──────────────────────────────────┐
-         ▼                                  │
-   ┌────────────┐                           │
-   │   recall    │──▶ apply prevention      │
-   │  learnings  │   rules if found         │
-   └──────┬─────┘                           │
-          ▼                                 │
-   ┌────────────┐                           │
-   │ do the work │                          │
-   └──────┬─────┘                           │
-          │                                 │
-     mistake? ─── no ──▶ done               │
-          │                                 │
-         yes                                │
-          ▼                                 │
-   ┌────────────┐                           │
-   │  store      │──────────────────────────┘
-   │ prevention  │      next task
-   │    rule     │
-   └──────┬─────┘
-          │
-          ▼ recurs 3+ times across contexts?
-   ┌────────────┐
-   │ promote to  │
-   │global scope │ → never repeat anywhere
-   └────────────┘
-```
+<p align="center">
+  <img src="sage_memory_system.svg" alt="Sage Enforcement." width="600" />
+</p>
 
 ## Tools
 
