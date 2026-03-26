@@ -184,6 +184,18 @@ def graph(*, id: str, relation: str | None = None,
                 "tags": json.loads(r["tags"]) if isinstance(r["tags"], str) else r["tags"],
             })
 
+        # Bump access tracking for all traversed nodes
+        now = time.time()
+        try:
+            db.execute(
+                f"""UPDATE memories SET accessed_at = ?, access_count = access_count + 1
+                    WHERE id IN ({ph})""",
+                [now] + discovered_ids,
+            )
+            db.commit()
+        except Exception:
+            pass
+
     return {
         "success": True,
         "start": {"id": start["id"], "title": start["title"]},

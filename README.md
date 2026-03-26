@@ -1,10 +1,8 @@
-<h1 align="center">Sage Memory</h1>
-<p align="center">
-  <img src="sage-memory-logo.svg" alt="Sage Memory - Memory that learns. Not just remembers." width="150" />
-</p>
-<p align="center"><strong>Persistent wisdom. Structured thought.</strong></p>
+# sage-memory
 
-Sage Memory is a local [MCP](https://modelcontextprotocol.io) memory server for AI agents. It gives any AI assistant — coding tools, personal agents, team copilots — three kinds of persistent memory that compound over time:
+Memory that learns. Not just remembers.
+
+sage-memory is a local [MCP](https://modelcontextprotocol.io) memory server for AI agents. It gives any AI assistant — coding tools, personal agents, team copilots — three kinds of persistent memory that compound over time:
 
 **Knowledge** — what you understand. Architecture, conventions, preferences, domain logic. *(→ memory skill)*
 
@@ -37,7 +35,7 @@ One search returns all three. The agent knows how things work, how they connect,
           → knowledge + structure + experience
 ```
 
-### Why Sage Memory
+### Why sage-memory
 
 - **The agent gets better every session.** Mistakes become prevention rules. Prevention rules compound across projects. The agent develops judgment, not just a bigger database.
 - **Intelligence lives in skills, not in the server.** The server is fast and dumb (~1,500 lines). Three skills teach the agent *what* to remember, *how* to learn from errors, and *when* to recall. Improve the agent by editing a markdown file, not shipping code.
@@ -213,7 +211,7 @@ Learnings link to ontology entities, enabling graph-based targeted recall: "show
 
 ## Use Cases
 
-**Coding assistants** — learn your codebase, conventions, and past debugging insights. Build architecture graphs during code exploration. Avoid repeating the same mistakes across sessions. *This is where Sage Memory has the deepest benchmarks and proven skills.*
+**Coding assistants** — learn your codebase, conventions, and past debugging insights. Build architecture graphs during code exploration. Avoid repeating the same mistakes across sessions. *This is where sage-memory has the deepest benchmarks and proven skills.*
 
 **Personal agents** — learn user preferences, remember relationships between people and places, avoid repeating rejected suggestions. An agent that remembers "user is vegetarian, allergic to nuts" and never suggests incompatible options again.
 

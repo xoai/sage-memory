@@ -234,7 +234,7 @@ def _fts_search(db, query: str, limit: int,
     sql = """SELECT m.*, bm25(memories_fts, 10.0, 3.0, 1.0) AS bm25_score
              FROM memories m
              JOIN memories_fts fts ON m.rowid = fts.rowid
-             WHERE memories_fts MATCH ?"""
+             WHERE m.status = 'active' AND memories_fts MATCH ?"""
     params: list = [fts_q]
 
     if tag_where:
@@ -322,7 +322,7 @@ def _vec_search(db, query_vec: list[float], limit: int,
     ids = [r["memory_id"] for r in rows]
     ph = ",".join("?" for _ in ids)
 
-    sql = f"SELECT * FROM memories WHERE id IN ({ph})"
+    sql = f"SELECT * FROM memories WHERE id IN ({ph}) AND status = 'active'"
     params = list(ids)
 
     if tag_where:

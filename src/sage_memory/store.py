@@ -71,12 +71,18 @@ def store(*, content: str, title: str | None = None,
 
 
 def update(*, id: str, content: str | None = None, title: str | None = None,
-           tags: list[str] | None = None, scope: str = "project") -> dict:
+           tags: list[str] | None = None, status: str | None = None,
+           scope: str = "project") -> dict:
     """Partial update by ID. Content changes trigger re-embedding."""
     db = get_db(scope)
     row = db.execute("SELECT * FROM memories WHERE id = ?", (id,)).fetchone()
     if not row:
         return {"success": False, "message": f"Not found: {id}"}
+
+    # Validate status if provided
+    valid_statuses = ("active", "invalidated", "archived")
+    if status is not None and status not in valid_statuses:
+        return {"success": False, "message": f"Invalid status: {status}. Must be one of: {valid_statuses}"}
 
     now = time.time()
     new_content = _normalize(content) if content else row["content"]
@@ -85,6 +91,7 @@ def update(*, id: str, content: str | None = None, title: str | None = None,
         t.lower().strip() for t in tags if t.strip()
     ))) if tags is not None else row["tags"]
     new_hash = hashlib.sha256(new_content.encode()).hexdigest()
+    new_status = status if status is not None else (row["status"] if "status" in row.keys() else "active")
 
     # Dedup (exclude self)
     dup = db.execute(
@@ -97,9 +104,9 @@ def update(*, id: str, content: str | None = None, title: str | None = None,
     needs_reembed = content is not None or title is not None
     db.execute(
         """UPDATE memories SET title=?, content=?, tags=?,
-           content_hash=?, embedded=?, updated_at=? WHERE id=?""",
+           content_hash=?, embedded=?, updated_at=?, status=? WHERE id=?""",
         (new_title, new_content, new_tags, new_hash,
-         0 if needs_reembed else row["embedded"], now, id),
+         0 if needs_reembed else row["embedded"], now, new_status, id),
     )
 
     if needs_reembed:
@@ -107,7 +114,10 @@ def update(*, id: str, content: str | None = None, title: str | None = None,
         _try_embed(db, id, new_title, new_content)
     db.commit()
 
-    return {"success": True, "id": id, "message": "Updated."}
+    result = {"success": True, "id": id, "message": "Updated."}
+    if status is not None:
+        result["status"] = new_status
+    return result
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -134,13 +144,21 @@ def delete(*, id: str, scope: str = "project") -> dict:
 
 
 def list_memories(*, scope: str = "project", tags: list[str] | None = None,
-                  limit: int = 20, offset: int = 0) -> dict:
-    """Browse stored memories with optional tag filtering (AND logic)."""
+                  limit: int = 20, offset: int = 0,
+                  include_archived: bool = False) -> dict:
+    """Browse stored memories with optional tag filtering (AND logic).
+
+    By default only shows active memories. Set include_archived=True
+    to also see invalidated and archived memories.
+    """
     db = get_db(scope)
     limit = max(1, min(limit, 100))
 
     where_parts: list[str] = []
     params: list = []
+
+    if not include_archived:
+        where_parts.append("status = 'active'")
 
     if tags:
         for tag in tags:
@@ -151,7 +169,7 @@ def list_memories(*, scope: str = "project", tags: list[str] | None = None,
 
     total = db.execute(f"SELECT COUNT(*) c FROM memories{where}", params).fetchone()["c"]
     rows = db.execute(
-        f"""SELECT id, title, tags, access_count, updated_at
+        f"""SELECT id, title, tags, access_count, status, updated_at
             FROM memories{where} ORDER BY updated_at DESC LIMIT ? OFFSET ?""",
         [*params, limit, max(0, offset)],
     ).fetchall()
@@ -159,7 +177,8 @@ def list_memories(*, scope: str = "project", tags: list[str] | None = None,
     return {
         "items": [
             {"id": r["id"], "title": r["title"],
-             "tags": json.loads(r["tags"]), "access_count": r["access_count"]}
+             "tags": json.loads(r["tags"]), "access_count": r["access_count"],
+             "status": r["status"] if "status" in r.keys() else "active"}
             for r in rows
         ],
         "total": total,

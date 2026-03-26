@@ -158,6 +158,13 @@ TOOLS = [
                 "content": {"type": "string", "description": "New content."},
                 "title": {"type": "string", "description": "New title."},
                 "tags": {"type": "array", "items": {"type": "string"}},
+                "status": {
+                    "type": "string", "enum": ["active", "invalidated", "archived"],
+                    "description": (
+                        "Lifecycle status. Set to 'invalidated' when a learning is "
+                        "proven wrong — it will be excluded from all future searches."
+                    ),
+                },
                 "scope": {
                     "type": "string", "enum": ["project", "global"],
                     "description": "Which database contains this memory.",
@@ -185,8 +192,9 @@ TOOLS = [
         name="sage_memory_list",
         description=(
             "Browse stored memories with optional tag filtering. "
-            "Shows what knowledge exists, sorted by most recently updated. "
-            "Tags use AND logic: all specified tags must match."
+            "Shows active knowledge by default, sorted by most recently updated. "
+            "Tags use AND logic: all specified tags must match. "
+            "Set include_archived to see invalidated/archived memories too."
         ),
         inputSchema={
             "type": "object",
@@ -201,6 +209,10 @@ TOOLS = [
                 },
                 "limit": {"type": "integer", "description": "Page size (default 20)."},
                 "offset": {"type": "integer", "description": "Pagination offset."},
+                "include_archived": {
+                    "type": "boolean",
+                    "description": "If true, also show invalidated and archived memories. Default false.",
+                },
             },
         },
     ),

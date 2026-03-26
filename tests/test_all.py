@@ -471,6 +471,88 @@ def test_set_project():
     check("find_project_root returns None for home", result is None)
 
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Suite 10: Memory Health (status lifecycle, access tracking)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def test_memory_health():
+    section("Suite 10: Memory Health")
+
+    # Store a learning and a regular memory
+    lrn = store(content="Use fetch not axios for HTTP calls in this project",
+                title="[LRN:correction] Use fetch not axios",
+                tags=["self-learning", "correction", "http"])
+    lrn_id = lrn["id"]
+
+    reg = store(content="Auth uses JWT with refresh rotation",
+                title="Auth architecture overview",
+                tags=["architecture", "auth"])
+    reg_id = reg["id"]
+
+    # ── Search finds active memories ─────────────────────
+    r = search(query="fetch axios HTTP")
+    found_ids = [x["id"] for x in r["results"]]
+    check("active learning appears in search", lrn_id in found_ids)
+
+    # ── Invalidate the learning ──────────────────────────
+    r = update(id=lrn_id, status="invalidated")
+    check("invalidation succeeds", r["success"] and r.get("status") == "invalidated")
+
+    # ── Invalidated memory excluded from search ──────────
+    r = search(query="fetch axios HTTP")
+    found_ids = [x["id"] for x in r["results"]]
+    check("invalidated memory excluded from search", lrn_id not in found_ids)
+
+    # ── Invalidated memory excluded from filter_tags search
+    r = search(query="fetch axios", filter_tags=["self-learning"])
+    found_ids = [x["id"] for x in r["results"]]
+    check("invalidated memory excluded from filter_tags search", lrn_id not in found_ids)
+
+    # ── list_memories excludes invalidated by default ────
+    r = list_memories()
+    listed_ids = [x["id"] for x in r["items"]]
+    check("list excludes invalidated by default", lrn_id not in listed_ids)
+    check("list still shows active memories", reg_id in listed_ids)
+
+    # ── include_archived shows everything ────────────────
+    r = list_memories(include_archived=True)
+    listed_ids = [x["id"] for x in r["items"]]
+    check("include_archived shows invalidated", lrn_id in listed_ids)
+    check("include_archived shows active too", reg_id in listed_ids)
+
+    # ── Status visible in list items ─────────────────────
+    lrn_item = next(x for x in r["items"] if x["id"] == lrn_id)
+    check("status field shows invalidated", lrn_item.get("status") == "invalidated")
+
+    # ── Recovery: restore to active ──────────────────────
+    r = update(id=lrn_id, status="active")
+    check("recovery to active succeeds", r["success"])
+
+    r = search(query="fetch axios HTTP")
+    found_ids = [x["id"] for x in r["results"]]
+    check("restored memory appears in search again", lrn_id in found_ids)
+
+    # ── Invalid status rejected ──────────────────────────
+    r = update(id=lrn_id, status="deleted")
+    check("invalid status rejected", not r["success"])
+
+    # ── Access tracking via graph ────────────────────────
+    # Store two linked memories and traverse
+    a = store(content="Service A calls service B", title="Service A", tags=["arch"])
+    b = store(content="Service B handles payments", title="Service B", tags=["arch"])
+    link(source_id=a["id"], target_id=b["id"], relation="calls")
+
+    # Check initial access_count
+    db = get_db("project")
+    row = db.execute("SELECT access_count FROM memories WHERE id = ?", (b["id"],)).fetchone()
+    initial_count = row["access_count"]
+
+    # Traverse — should bump access_count on discovered node (B)
+    graph(id=a["id"], direction="outbound", depth=1)
+    row = db.execute("SELECT access_count FROM memories WHERE id = ?", (b["id"],)).fetchone()
+    check("graph traversal bumps access_count", row["access_count"] > initial_count)
+
+
 def test_performance():
     section("Suite 8: Performance")
 
@@ -554,6 +636,7 @@ def main():
         ("Ontology Patterns", test_ontology_patterns),
         ("Self-Learning Patterns", test_self_learning_patterns),
         ("set_project", test_set_project),
+        ("Memory Health", test_memory_health),
         ("Performance", test_performance),
     ]
 
