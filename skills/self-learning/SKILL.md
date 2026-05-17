@@ -183,18 +183,63 @@ sage_memory_link(
 if the connection is important: "Related entity: task_a1b2 (Fix payment
 timeout)."
 
-### Search Before Store
+### When a Learning Causes a Bug
 
-Before creating a new learning, check for duplicates:
+When you follow a stored self-learning entry and it leads to incorrect
+behavior (wrong library, outdated pattern, contradicted convention):
 
-**With MCP:**
-```
-sage_memory_search(query: "<key terms>", filter_tags: ["self-learning"], limit: 5)
-```
+1. **Store a NEW learning** (type: `correction`) describing what the
+   original said, why it's now wrong, and what the correct approach is.
 
-**With files:** Scan `lrn-*.md` filenames for similar topics.
+2. **Invalidate the original:**
+   ```
+   sage_memory_update(id: "<original_id>", status: "invalidated")
+   ```
 
-If similar exists → update it. Don't create near-duplicates.
+3. **Link the correction to the original:**
+   ```
+   sage_memory_link(
+     source_id: "<correction_id>",
+     target_id: "<original_id>",
+     relation: "corrects"
+   )
+   ```
+
+The original learning will never appear in search again. The correction
+replaces it as active knowledge. The graph edge preserves the audit trail.
+
+**With files:** Rename the original file to `lrn-INVALID-<name>.md` and
+add `status: invalidated` to its frontmatter. Create the correction as
+a new file.
+
+### Search Before Store (Semantic Reinforcement)
+
+Before creating a new learning, check for existing similar learnings:
+
+1. Search with the new learning's core content:
+   ```
+   sage_memory_search(
+     query: "<what_happened + prevention_rule>",
+     filter_tags: ["self-learning"],
+     limit: 3
+   )
+   ```
+
+2. If the top result describes the **same root cause and same prevention**:
+   - Do NOT create a new entry
+   - Update the existing entry with any new details:
+     ```
+     sage_memory_update(id: "<existing_id>", content: "<merged content>")
+     ```
+   - The access_count bump from the search already signals reinforcement
+
+3. If no strong match → store as new.
+
+Why: Three entries saying "check middleware order" waste search slots.
+One entry that gets richer over time is more useful.
+
+**With files:** Scan `lrn-*.md` filenames for similar topics. If a
+match exists, edit that file instead of creating a new one.
 
 ### When NOT to Store
 

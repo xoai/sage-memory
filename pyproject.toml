@@ -1,6 +1,6 @@
 [project]
 name = "sage-memory"
-version = "0.5.3"
+version = "0.5.0"
 description = "Ultrafast local MCP memory for LLMs — project-aware, zero-config"
 readme = "README.md"
 license = { text = "MIT" }

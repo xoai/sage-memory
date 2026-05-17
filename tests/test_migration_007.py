@@ -1,6 +1,6 @@
-"""M5 T0 — Migration 007 + Worker maybe_prune() tests.
+"""M5 T0 — Migration 008 + Worker maybe_prune() tests.
 
-Migration 007 does TWO things atomically:
+Migration 008 does TWO things atomically:
   Part A: adds `worker_state` singleton table (last_prune_at REAL).
   Part B: relaxes extraction_queue.memory_id NOT NULL (rev1-review
           CRITICAL #1 — required so dedup tasks with NULL memory_id
@@ -26,9 +26,9 @@ from sage_memory.worker import Worker
 def _through_006(fresh_db, tmp_migrations_dir, copy_production_migrations):
     """Helper: apply 001-006 (everything pre-007) to a fresh DB."""
     copy_production_migrations(
-        "001_initial.sql", "002_edges.sql", "003_chunks.sql",
-        "004_entities.sql", "005_embedding_meta.sql",
-        "006_extraction_queue.sql",
+        "001_initial.sql", "002_edges.sql", "003_memory_health.sql", "004_chunks.sql",
+        "005_entities.sql", "006_embedding_meta.sql",
+        "007_extraction_queue.sql",
     )
     _migrate(fresh_db, migrations_dir=tmp_migrations_dir)
 
@@ -36,14 +36,14 @@ def _through_006(fresh_db, tmp_migrations_dir, copy_production_migrations):
 def _through_007(fresh_db, tmp_migrations_dir, copy_production_migrations):
     """Helper: apply 001-007."""
     copy_production_migrations(
-        "001_initial.sql", "002_edges.sql", "003_chunks.sql",
-        "004_entities.sql", "005_embedding_meta.sql",
-        "006_extraction_queue.sql", "007_worker_state.sql",
+        "001_initial.sql", "002_edges.sql", "003_memory_health.sql", "004_chunks.sql",
+        "005_entities.sql", "006_embedding_meta.sql",
+        "007_extraction_queue.sql", "008_worker_state.sql",
     )
     _migrate(fresh_db, migrations_dir=tmp_migrations_dir)
 
 
-# ─── Migration 007 schema tests ───────────────────────────────────
+# ─── Migration 008 schema tests ───────────────────────────────────
 
 
 def test_migration_007_creates_worker_state_table(
@@ -138,7 +138,7 @@ def test_migration_007_preserves_existing_extraction_queue_rows(
     fresh_db.commit()
 
     # Now apply 007 (carries the rebuild).
-    copy_production_migrations("007_worker_state.sql")
+    copy_production_migrations("008_worker_state.sql")
     _migrate(fresh_db, migrations_dir=tmp_migrations_dir)
 
     post_ids = [
@@ -147,7 +147,7 @@ def test_migration_007_preserves_existing_extraction_queue_rows(
         )
     ]
     assert set(post_ids) == set(pre_ids), (
-        "Migration 007 Part B rebuild lost rows"
+        "Migration 008 Part B rebuild lost rows"
     )
 
 

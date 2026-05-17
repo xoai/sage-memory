@@ -320,7 +320,8 @@ def search(*, query: str, scope: str = "project",
         if graph_only_ids:
             placeholders = ",".join("?" * len(graph_only_ids))
             graph_only_rows = db.execute(
-                f"SELECT * FROM memories WHERE id IN ({placeholders})",
+                f"SELECT * FROM memories WHERE id IN ({placeholders}) "
+                f"AND status = 'active'",
                 graph_only_ids,
             ).fetchall()
             for row in graph_only_rows:
@@ -493,7 +494,7 @@ def _seed_bm25_probe(
             "bm25(memories_fts, 10.0, 3.0, 1.0) AS bm25_score "
             "FROM memories m "
             "JOIN memories_fts fts ON m.rowid = fts.rowid "
-            "WHERE memories_fts MATCH ? "
+            "WHERE m.status = 'active' AND memories_fts MATCH ? "
             "ORDER BY bm25_score LIMIT ?",
             (fts_q, limit),
         ).fetchall()
@@ -638,7 +639,7 @@ def _fts_search(db, query: str, limit: int,
     sql = """SELECT m.*, bm25(memories_fts, 10.0, 3.0, 1.0) AS bm25_score
              FROM memories m
              JOIN memories_fts fts ON m.rowid = fts.rowid
-             WHERE memories_fts MATCH ?"""
+             WHERE m.status = 'active' AND memories_fts MATCH ?"""
     params: list = [fts_q]
 
     if tag_where:
@@ -726,7 +727,7 @@ def _vec_search(db, query_vec: list[float], limit: int,
     ids = [r["memory_id"] for r in rows]
     ph = ",".join("?" for _ in ids)
 
-    sql = f"SELECT * FROM memories WHERE id IN ({ph})"
+    sql = f"SELECT * FROM memories WHERE id IN ({ph}) AND status = 'active'"
     params = list(ids)
 
     if tag_where:
@@ -780,7 +781,7 @@ def _fts_search_chunks(db, query: str, limit: int,
         SELECT m.*, ch.bm25_score
           FROM chunk_hits ch
           JOIN memories m ON ch.memory_id = m.id
-         WHERE ch.rn = 1
+         WHERE ch.rn = 1 AND m.status = 'active'
     """
     params: list = [fts_q]
 
@@ -874,7 +875,10 @@ def _vec_search_chunks(db, query_vec: list[float], limit: int,
 
     # Fetch memory rows (with optional tag filter)
     mem_ph = ",".join("?" for _ in ordered_mem_ids)
-    sql_mem = f"SELECT * FROM memories WHERE id IN ({mem_ph})"
+    sql_mem = (
+        f"SELECT * FROM memories WHERE id IN ({mem_ph}) "
+        f"AND status = 'active'"
+    )
     params: list = list(ordered_mem_ids)
     if tag_where:
         sql_mem += f" AND {tag_where}"

@@ -140,21 +140,21 @@ INSERT INTO nonexistent VALUES (1);
 
 
 # ═══════════════════════════════════════════════════════════════════
-# T2 — Migration 003_chunks.sql
+# T2 — Migration 005_chunks.sql
 # ═══════════════════════════════════════════════════════════════════
 
 
 @pytest.fixture
-def migrated_db_through_003(fresh_db, tmp_migrations_dir, copy_production_migrations):
+def migrated_db_through_004(fresh_db, tmp_migrations_dir, copy_production_migrations):
     """fresh_db with migrations 001 + 002 + 003 applied."""
-    copy_production_migrations("001_initial.sql", "002_edges.sql", "003_chunks.sql")
+    copy_production_migrations("001_initial.sql", "002_edges.sql", "003_memory_health.sql", "004_chunks.sql")
     _migrate(fresh_db, migrations_dir=tmp_migrations_dir)
     return fresh_db
 
 
-def test_003_applies_clean(migrated_db_through_003):
-    db = migrated_db_through_003
-    assert db.execute("PRAGMA user_version").fetchone()[0] == 3
+def test_003_applies_clean(migrated_db_through_004):
+    db = migrated_db_through_004
+    assert db.execute("PRAGMA user_version").fetchone()[0] == 4
 
     tables = {row[0] for row in db.execute(
         "SELECT name FROM sqlite_master WHERE type='table'"
@@ -167,19 +167,29 @@ def test_003_applies_clean(migrated_db_through_003):
 def test_003_idempotency(
     fresh_db, tmp_migrations_dir, copy_production_migrations
 ):
-    copy_production_migrations("001_initial.sql", "002_edges.sql", "003_chunks.sql")
+    """Verifies chunks-migration idempotency via the IF NOT EXISTS
+    pattern (relevant to recovery scenarios where user_version got
+    rolled back without rolling back the schema).
+
+    Note: 003_memory_health uses `ALTER TABLE ADD COLUMN` which is
+    NOT idempotent in SQLite (no `IF NOT EXISTS` for ADD COLUMN
+    before 3.35). That migration is intentionally excluded from
+    this test — the user_version monotonic check in `_migrate`
+    protects it in production. Manual user_version rollback would
+    require dropping the column too."""
+    copy_production_migrations("001_initial.sql", "002_edges.sql", "004_chunks.sql")
     _migrate(fresh_db, migrations_dir=tmp_migrations_dir)
     # Reset user_version to pretend the migration hadn't been applied,
     # then re-run. IF NOT EXISTS clauses must make this a no-op.
     fresh_db.execute("PRAGMA user_version = 2")
     fresh_db.commit()
     _migrate(fresh_db, migrations_dir=tmp_migrations_dir)
-    # Should reach user_version=3 again without error
-    assert fresh_db.execute("PRAGMA user_version").fetchone()[0] == 3
+    # Should reach user_version=4 again (skipping the absent 003_memory_health).
+    assert fresh_db.execute("PRAGMA user_version").fetchone()[0] == 4
 
 
-def test_003_cascade_delete(migrated_db_through_003):
-    db = migrated_db_through_003
+def test_003_cascade_delete(migrated_db_through_004):
+    db = migrated_db_through_004
     db.execute(
         "INSERT INTO memories(id,title,content,content_hash,created_at,updated_at,accessed_at) "
         "VALUES (?,?,?,?,?,?,?)",
@@ -198,8 +208,8 @@ def test_003_cascade_delete(migrated_db_through_003):
     assert remaining == 0
 
 
-def test_003_fts_trigger_sync(migrated_db_through_003):
-    db = migrated_db_through_003
+def test_003_fts_trigger_sync(migrated_db_through_004):
+    db = migrated_db_through_004
     # Need a memory first (chunks FK references it)
     db.execute(
         "INSERT INTO memories(id,title,content,content_hash,created_at,updated_at,accessed_at) "
@@ -219,9 +229,9 @@ def test_003_fts_trigger_sync(migrated_db_through_003):
     assert len(rows) == 1
 
 
-def test_003_vec_table_dim(migrated_db_through_003):
+def test_003_vec_table_dim(migrated_db_through_004):
     """The vec0 virtual table is created with float[384] embedding."""
-    db = migrated_db_through_003
+    db = migrated_db_through_004
     # vec0 doesn't expose schema easily — check the create statement.
     sql = db.execute(
         "SELECT sql FROM sqlite_master WHERE name='chunks_vec'"
@@ -230,22 +240,22 @@ def test_003_vec_table_dim(migrated_db_through_003):
 
 
 # ═══════════════════════════════════════════════════════════════════
-# T3 — Migration 004_entities.sql
+# T3 — Migration 006_entities.sql
 # ═══════════════════════════════════════════════════════════════════
 
 
 @pytest.fixture
-def migrated_db_through_004(fresh_db, tmp_migrations_dir, copy_production_migrations):
+def migrated_db_through_005(fresh_db, tmp_migrations_dir, copy_production_migrations):
     copy_production_migrations(
-        "001_initial.sql", "002_edges.sql", "003_chunks.sql", "004_entities.sql",
+        "001_initial.sql", "002_edges.sql", "003_memory_health.sql", "004_chunks.sql", "005_entities.sql",
     )
     _migrate(fresh_db, migrations_dir=tmp_migrations_dir)
     return fresh_db
 
 
-def test_004_applies_clean(migrated_db_through_004):
-    db = migrated_db_through_004
-    assert db.execute("PRAGMA user_version").fetchone()[0] == 4
+def test_004_applies_clean(migrated_db_through_005):
+    db = migrated_db_through_005
+    assert db.execute("PRAGMA user_version").fetchone()[0] == 5
     tables = {row[0] for row in db.execute(
         "SELECT name FROM sqlite_master WHERE type='table'"
     )}
@@ -253,8 +263,8 @@ def test_004_applies_clean(migrated_db_through_004):
         assert t in tables
 
 
-def test_004_cascade_on_memory_delete(migrated_db_through_004):
-    db = migrated_db_through_004
+def test_004_cascade_on_memory_delete(migrated_db_through_005):
+    db = migrated_db_through_005
     # Insert memory + entity + mention + relation
     db.execute(
         "INSERT INTO memories(id,title,content,content_hash,created_at,updated_at,accessed_at) "
@@ -281,8 +291,8 @@ def test_004_cascade_on_memory_delete(migrated_db_through_004):
     assert rel_src_mem is None  # SET NULL
 
 
-def test_004_cascade_on_entity_delete(migrated_db_through_004):
-    db = migrated_db_through_004
+def test_004_cascade_on_entity_delete(migrated_db_through_005):
+    db = migrated_db_through_005
     db.execute(
         "INSERT INTO memories(id,title,content,content_hash,created_at,updated_at,accessed_at) "
         "VALUES ('m1','t','c','h1',1,1,1)"
@@ -307,8 +317,8 @@ def test_004_cascade_on_entity_delete(migrated_db_through_004):
     assert db.execute("SELECT COUNT(*) FROM relations WHERE source_entity_id='e1'").fetchone()[0] == 0
 
 
-def test_004_canonical_id_self_ref_set_null(migrated_db_through_004):
-    db = migrated_db_through_004
+def test_004_canonical_id_self_ref_set_null(migrated_db_through_005):
+    db = migrated_db_through_005
     db.execute(
         "INSERT INTO entities(id,name,name_normalized,type,created_at,updated_at) "
         "VALUES ('e1','A','a','CONCEPT',1,1)"
@@ -324,8 +334,8 @@ def test_004_canonical_id_self_ref_set_null(migrated_db_through_004):
     assert cano is None  # ON DELETE SET NULL
 
 
-def test_004_unique_constraint(migrated_db_through_004):
-    db = migrated_db_through_004
+def test_004_unique_constraint(migrated_db_through_005):
+    db = migrated_db_through_005
     db.execute(
         "INSERT INTO entities(id,name,name_normalized,type,created_at,updated_at) "
         "VALUES ('e1','A','a','CONCEPT',1,1)"
@@ -340,23 +350,23 @@ def test_004_unique_constraint(migrated_db_through_004):
 
 
 # ═══════════════════════════════════════════════════════════════════
-# T4 — Migration 005_embedding_meta.sql
+# T4 — Migration 007_embedding_meta.sql
 # ═══════════════════════════════════════════════════════════════════
 
 
 @pytest.fixture
-def migrated_db_through_005(fresh_db, tmp_migrations_dir, copy_production_migrations):
+def migrated_db_through_006(fresh_db, tmp_migrations_dir, copy_production_migrations):
     copy_production_migrations(
-        "001_initial.sql", "002_edges.sql", "003_chunks.sql",
-        "004_entities.sql", "005_embedding_meta.sql",
+        "001_initial.sql", "002_edges.sql", "003_memory_health.sql", "004_chunks.sql",
+        "005_entities.sql", "006_embedding_meta.sql",
     )
     _migrate(fresh_db, migrations_dir=tmp_migrations_dir)
     return fresh_db
 
 
-def test_005_applies_clean(migrated_db_through_005):
-    db = migrated_db_through_005
-    assert db.execute("PRAGMA user_version").fetchone()[0] == 5
+def test_005_applies_clean(migrated_db_through_006):
+    db = migrated_db_through_006
+    assert db.execute("PRAGMA user_version").fetchone()[0] == 6
     tables = {row[0] for row in db.execute(
         "SELECT name FROM sqlite_master WHERE type='table'"
     )}
@@ -364,8 +374,8 @@ def test_005_applies_clean(migrated_db_through_005):
         assert t in tables
 
 
-def test_005_corpus_meta_default(migrated_db_through_005):
-    db = migrated_db_through_005
+def test_005_corpus_meta_default(migrated_db_through_006):
+    db = migrated_db_through_006
     vec_dim = db.execute(
         "SELECT value FROM corpus_meta WHERE key='vec_dim'"
     ).fetchone()[0]
@@ -379,7 +389,7 @@ def test_005_backfill_embedded_rows(
     the backfill INSERT created one meta row per embedded memory with
     ('legacy', '0', 384)."""
     copy_production_migrations(
-        "001_initial.sql", "002_edges.sql", "003_chunks.sql", "004_entities.sql",
+        "001_initial.sql", "002_edges.sql", "003_memory_health.sql", "004_chunks.sql", "005_entities.sql",
     )
     _migrate(fresh_db, migrations_dir=tmp_migrations_dir)
     # Insert 3 embedded + 2 unembedded
@@ -398,7 +408,7 @@ def test_005_backfill_embedded_rows(
     fresh_db.commit()
 
     # Now apply 005 — the backfill runs.
-    copy_production_migrations("005_embedding_meta.sql")
+    copy_production_migrations("006_embedding_meta.sql")
     _migrate(fresh_db, migrations_dir=tmp_migrations_dir)
 
     # Exactly 3 meta rows; all embedded=1 covered, no rows for embedded=0.
@@ -413,9 +423,9 @@ def test_005_backfill_embedded_rows(
         assert row[3] == 384
 
 
-def test_005_backfill_skips_unembedded(migrated_db_through_005):
+def test_005_backfill_skips_unembedded(migrated_db_through_006):
     """embedded=0 memories get NO meta row — they stay stale (spec A4)."""
-    db = migrated_db_through_005
+    db = migrated_db_through_006
     db.execute(
         "INSERT INTO memories(id,title,content,content_hash,embedded,created_at,updated_at,accessed_at) "
         "VALUES ('u1','t','c','h1',0,1,1,1)"
@@ -429,8 +439,8 @@ def test_005_backfill_skips_unembedded(migrated_db_through_005):
     assert cnt == 0
 
 
-def test_005_cascade_memory_delete(migrated_db_through_005):
-    db = migrated_db_through_005
+def test_005_cascade_memory_delete(migrated_db_through_006):
+    db = migrated_db_through_006
     db.execute(
         "INSERT INTO memories(id,title,content,content_hash,created_at,updated_at,accessed_at) "
         "VALUES ('m1','t','c','h1',1,1,1)"
@@ -445,8 +455,8 @@ def test_005_cascade_memory_delete(migrated_db_through_005):
     assert db.execute("SELECT COUNT(*) FROM memory_embedding_meta").fetchone()[0] == 0
 
 
-def test_005_cascade_chunk_delete(migrated_db_through_005):
-    db = migrated_db_through_005
+def test_005_cascade_chunk_delete(migrated_db_through_006):
+    db = migrated_db_through_006
     db.execute(
         "INSERT INTO memories(id,title,content,content_hash,created_at,updated_at,accessed_at) "
         "VALUES ('m1','t','c','h1',1,1,1)"
@@ -466,7 +476,7 @@ def test_005_cascade_chunk_delete(migrated_db_through_005):
 
 
 # ═══════════════════════════════════════════════════════════════════
-# T5 — Migration 006_extraction_queue.sql
+# T5 — Migration 008_extraction_queue.sql
 # ═══════════════════════════════════════════════════════════════════
 
 
@@ -474,8 +484,8 @@ def test_005_cascade_chunk_delete(migrated_db_through_005):
 def migrated_db_full(fresh_db, tmp_migrations_dir, copy_production_migrations):
     """All M1 migrations applied (001-006)."""
     copy_production_migrations(
-        "001_initial.sql", "002_edges.sql", "003_chunks.sql",
-        "004_entities.sql", "005_embedding_meta.sql", "006_extraction_queue.sql",
+        "001_initial.sql", "002_edges.sql", "003_memory_health.sql", "004_chunks.sql",
+        "005_entities.sql", "006_embedding_meta.sql", "007_extraction_queue.sql",
     )
     _migrate(fresh_db, migrations_dir=tmp_migrations_dir)
     return fresh_db
@@ -483,7 +493,7 @@ def migrated_db_full(fresh_db, tmp_migrations_dir, copy_production_migrations):
 
 def test_006_applies_clean(migrated_db_full):
     db = migrated_db_full
-    assert db.execute("PRAGMA user_version").fetchone()[0] == 6
+    assert db.execute("PRAGMA user_version").fetchone()[0] == 7
     tables = {row[0] for row in db.execute(
         "SELECT name FROM sqlite_master WHERE type='table'"
     )}
@@ -555,7 +565,7 @@ def test_migration_order_invariant(
     copy_production_migrations("001_initial.sql", "002_edges.sql")
     # Copy 005's body into a slot at version 3, WITHOUT including 003.
     src = (Path(__file__).parent.parent
-           / "src" / "sage_memory" / "migrations" / "005_embedding_meta.sql")
+           / "src" / "sage_memory" / "migrations" / "006_embedding_meta.sql")
     shutil.copy2(src, tmp_migrations_dir / "003_premature_chunk_meta.sql")
 
     # The migration applies successfully (CREATE TABLE doesn't validate
