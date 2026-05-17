@@ -1,0 +1,50 @@
+name: Release to PyPI
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+# Required for PyPI Trusted Publishers (OIDC auth, no API token needed).
+# See: https://docs.pypi.org/trusted-publishers/
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-publish:
+    name: Build + publish
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/sage-memory/
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Verify tag matches pyproject.toml version
+        run: |
+          set -e
+          TAG="${GITHUB_REF##refs/tags/v}"
+          PROJ_VERSION=$(grep -E '^version\s*=' pyproject.toml | head -1 | sed -E 's/version\s*=\s*"([^"]+)"/\1/')
+          if [ "$TAG" != "$PROJ_VERSION" ]; then
+            echo "::error::tag v${TAG} does not match pyproject.toml version ${PROJ_VERSION}"
+            exit 1
+          fi
+          echo "Tag and pyproject.toml agree on version ${TAG}"
+
+      - name: Build wheel + sdist
+        run: uv build
+
+      - name: Verify build artifacts
+        run: |
+          ls -la dist/
+          test -f dist/sage_memory-*.whl
+          test -f dist/sage_memory-*.tar.gz
+
+      - name: Publish to PyPI (Trusted Publisher OIDC)
+        run: uv publish
