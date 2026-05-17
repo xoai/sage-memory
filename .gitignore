@@ -10,6 +10,7 @@ sage/
 .sage-memory/
 CLAUDE.md
 .claude/
+docs/
 
 # Evaluation artifacts — large + regenerable
 # (data is the public LongMemEval download; results are bench output)
