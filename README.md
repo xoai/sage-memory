@@ -1,6 +1,12 @@
 # sage-memory
 
-Memory that learns. Not just remembers.
+<p align="center">
+  <img src="sage-memory-logo.svg" alt="Sage Memory - Memory that learns. Not just remembers." width="150" />
+</p>
+
+<p align="center">Persistent wisdom. Structured thought</p>
+
+<p align="center">Memory that learns. Not just remembers.</p>
 
 sage-memory is a local [MCP](https://modelcontextprotocol.io) memory server for AI agents. It gives any AI assistant — coding tools, personal agents, team copilots — three kinds of persistent memory that compound over time:
 
