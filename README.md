@@ -242,6 +242,64 @@ pip install sage-memory[neural]
 
 Auto-detected, enables hybrid search (FTS5 + vector via Reciprocal Rank Fusion).
 
+## Retrieval Pipeline
+
+Sage Memory's search is a **six-stage pipeline** combining three
+retrieval **channels** under a single weighted Reciprocal Rank Fusion
+(RRF) score. The design and acceptance criteria are spelled out in
+the architecture decision records.
+
+**The three channels:**
+- **`bm25`** — FTS5 full-text search over titles + content + tags.
+  Always-on; the load-bearing channel for keyword recall.
+- **`vector`** — sqlite-vec cosine similarity. Skipped when no
+  hosted embedder is configured AND the local 384d embedder's
+  quality falls below the vector-search threshold.
+- **`graph`** — entity-mediated proximity. Two-layer BFS over auto-
+  extracted entity mentions + manual edges; contributes when an
+  LLM key is configured and the worker has populated the entity
+  graph. The default channel weight is 0.7
+  ([ADR-004](.sage/docs/decision-004-search-pipeline.md)).
+
+**The six stages** (per call, in order):
+1. **expand** — optional LLM query expansion produces `{lex, vec,
+   hyde}` variants. A strong-signal short-circuit on the FTS5 bm25
+   score (per [ADR-004](.sage/docs/decision-004-search-pipeline.md)
+   §"Strong-signal short-circuit") skips the LLM call when the top
+   hit is confident.
+2. **retrieve** — per-channel candidate fetch. Lex variants extend
+   the bm25 channel; vec/hyde extend the vector channel.
+3. **fuse** — weighted RRF across the three channels collapses to
+   a single ranked list.
+4. **dedup** — chunk-to-memory rollup. Chunks live in the schema
+   shipped by [ADR-001](.sage/docs/decision-001-storage-schema.md);
+   chunk hits are folded back into their parent memory.
+5. **rerank** — optional LLM rerank on the top-K candidates with a
+   position-blend curve `[0.75, 0.6, 0.4]` over positions
+   `[1-3, 4-10, 11+]` (per ADR-004 §"Rerank position-blend").
+6. **score** — tag boost, recency tiebreaker, project-vs-global
+   priority. Final ordering returned to the caller.
+
+**Background machinery:**
+- The **extraction worker** (M3a; see
+  [ADR-003](.sage/docs/decision-003-entity-extraction.md)) processes
+  writes asynchronously, populating entities, mentions, and
+  relations for the graph channel. It also handles `reembed` tasks
+  (used by `sage-memory reindex`) and `dedup` tasks (LLM-confirmed
+  entity merging).
+- The **embedder cascade**
+  ([ADR-005](.sage/docs/decision-005-embedding-lifecycle.md))
+  resolves a corpus-locked embedder tier at startup. Switching
+  tiers requires `sage-memory reindex --re-embed --embedder <name>`
+  to atomically swap `memories_vec` + `chunks_vec` and queue
+  reembed tasks.
+
+**Free-path floor:** every LLM-gated feature (expand, rerank, entity
+extraction, dedup) degrades silently when no LLM key is configured.
+Search continues to work; the graph channel returns empty and falls
+out of the RRF; expand/rerank are no-ops. This preserves the
+zero-config promise — install, store, search.
+
 ## Architecture
 
 ```

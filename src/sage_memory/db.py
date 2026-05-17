@@ -18,6 +18,7 @@ stay running across project switches.
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 from pathlib import Path
 
@@ -114,15 +115,153 @@ def _open(path: Path) -> sqlite3.Connection:
     return conn
 
 
-def _migrate(conn: sqlite3.Connection) -> None:
+def _strip_strings_and_comments(s: str) -> str:
+    """Mask string literals and SQL comments with same-length whitespace,
+    so position-based regex/keyword scans don't false-match on content
+    inside them. Preserves character offsets so callers can slice the
+    original by index.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(s)
+    while i < n:
+        c = s[i]
+        nxt = s[i + 1] if i + 1 < n else ""
+        # Line comment: -- to end of line
+        if c == "-" and nxt == "-":
+            j = s.find("\n", i)
+            if j == -1:
+                j = n
+            out.append(" " * (j - i))
+            i = j
+            continue
+        # Block comment: /* ... */
+        if c == "/" and nxt == "*":
+            j = s.find("*/", i + 2)
+            if j == -1:
+                j = n
+            else:
+                j += 2
+            out.append(" " * (j - i))
+            i = j
+            continue
+        # Single-quoted string (with '' escape)
+        if c == "'":
+            j = i + 1
+            while j < n:
+                if s[j] == "'":
+                    if j + 1 < n and s[j + 1] == "'":
+                        j += 2  # escaped quote inside string
+                        continue
+                    j += 1
+                    break
+                j += 1
+            else:
+                j = n
+            out.append(" " * (j - i))
+            i = j
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+_BEGIN_KW = re.compile(r"\bBEGIN\b", re.IGNORECASE)
+_END_KW = re.compile(r"\bEND\b", re.IGNORECASE)
+_CREATE_VIRTUAL_RE = re.compile(
+    r"^\s*CREATE\s+VIRTUAL\s+TABLE\b", re.IGNORECASE
+)
+
+
+def _split_statements(script: str) -> list[str]:
+    """Split a SQL script into individual top-level statements.
+
+    Respects: single-quoted strings (with '' escape), -- line comments,
+    /* */ block comments, and CREATE TRIGGER ... BEGIN ... END; blocks
+    (so semicolons inside trigger bodies don't split the trigger).
+
+    Returns non-empty statement strings (trailing whitespace stripped,
+    but trailing semicolon preserved for clarity).
+    """
+    statements: list[str] = []
+    buffer: list[str] = []
+    for line in script.splitlines(keepends=True):
+        buffer.append(line)
+        joined = "".join(buffer)
+        masked = _strip_strings_and_comments(joined)
+        # Inside a trigger body if BEGIN count > END count.
+        begin_count = len(_BEGIN_KW.findall(masked))
+        end_count = len(_END_KW.findall(masked))
+        if begin_count > end_count:
+            continue
+        if sqlite3.complete_statement(joined):
+            stmt = joined.strip()
+            if stmt and stmt.rstrip(";").strip():
+                statements.append(stmt)
+            buffer = []
+    # Trailing content without a terminating semicolon
+    if buffer:
+        rest = "".join(buffer).strip()
+        if rest and rest.rstrip(";").strip():
+            statements.append(rest)
+    return statements
+
+
+def _is_create_virtual(stmt: str) -> bool:
+    """True if the statement is a CREATE VIRTUAL TABLE (FTS5/vec0 etc)."""
+    masked = _strip_strings_and_comments(stmt)
+    return _CREATE_VIRTUAL_RE.match(masked) is not None
+
+
+def _migrate(
+    conn: sqlite3.Connection,
+    migrations_dir: Path | None = None,
+) -> None:
+    """Apply pending migrations in two phases per file:
+
+    PHASE A — virtual-table CREATEs (FTS5, vec0). Run outside any
+    transaction because some SQLite versions reject CREATE VIRTUAL TABLE
+    inside a BEGIN block. Idempotent via `IF NOT EXISTS`.
+
+    PHASE B — non-virtual DDL + DML + `PRAGMA user_version = N`. Wrapped
+    in BEGIN/COMMIT; on exception, ROLLBACK reverts the file's PHASE B
+    work atomically. user_version only advances on full success.
+
+    See .sage/docs/decision-001-storage-schema.md §Migration Runner Contract.
+
+    Args:
+        conn: sqlite3 connection (must have foreign_keys = ON).
+        migrations_dir: directory holding `NNN_*.sql` files. Defaults to
+            the production migrations directory. Tests pass tmpdirs.
+    """
+    if migrations_dir is None:
+        migrations_dir = _MIGRATIONS_DIR
+
     current = conn.execute("PRAGMA user_version").fetchone()[0]
-    for sql_file in sorted(_MIGRATIONS_DIR.glob("*.sql")):
+    for sql_file in sorted(migrations_dir.glob("*.sql")):
         version = int(sql_file.stem.split("_")[0])
         if version <= current:
             continue
-        conn.executescript(sql_file.read_text("utf-8"))
-        conn.execute(f"PRAGMA user_version = {version}")
-        conn.commit()
+
+        script = sql_file.read_text("utf-8")
+        statements = _split_statements(script)
+        virtual_stmts = [s for s in statements if _is_create_virtual(s)]
+        other_stmts = [s for s in statements if not _is_create_virtual(s)]
+
+        # PHASE A: virtual tables, outside txn (idempotent via IF NOT EXISTS).
+        for stmt in virtual_stmts:
+            conn.execute(stmt)
+
+        # PHASE B: non-virtual DDL + user_version bump, atomic.
+        try:
+            conn.execute("BEGIN")
+            for stmt in other_stmts:
+                conn.execute(stmt)
+            conn.execute(f"PRAGMA user_version = {version}")
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
 
 
 def _resolve_project_root() -> Path | None:

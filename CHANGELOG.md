@@ -2,6 +2,81 @@
 
 All notable changes to sage-memory will be documented in this file.
 
+## [0.6.0] — 2026-05-17
+
+Retrieval upgrade — ontology-aware indexing + multi-stage search pipeline.
+Backwards-compatible: existing env-var tunables continue to work as
+Layer-2 aliases over the new yaml-based config cascade.
+
+### M1 — Schema foundation + embedder cascade
+
+Migrations 003-006 add chunks, entities/mentions/relations, embedding
+metadata, and the background extraction queue. Embedder tiering
+(local/fastembed/openai/voyage/cohere) is resolved at startup with
+explicit error when corpus_meta.vec_dim doesn't match an available tier.
+
+### M2 — Chunking
+
+`chunker.py` splits long memories at paragraph/sentence boundaries;
+chunk-aware retrieval folds chunk hits back to parent memories via
+the chunks_vec / chunks_fts virtual tables.
+
+### M3a — Background worker + entity/relation extraction
+
+`worker.py` polls the extraction_queue; `llm.py` provides a provider
+cascade (Anthropic primary, OpenAI fallback) with retry + code-fence
+stripping; `extractor.py` does inline entity/relation extraction with
+controlled-vocab type validation. Worker handles `extract` + `reembed`
+tasks asynchronously. Free-path floor: no LLM key → no extraction;
+search degrades gracefully.
+
+### M3b — Graph channel + 3-channel RRF
+
+`graph_channel.py` implements two-layer BFS (entity-mediated + memory-
+direct via edges) with three configurable rank curves
+(linear / harmonic / type-weighted). `search.py` threads the graph
+channel as a third RRF leg alongside bm25 and vector. New MCP params
+`channels` + `strategy` + `expand` + `rerank`.
+
+### M4 — Search-side LLM (expansion + rerank)
+
+`expand.py` + `rerank.py` add LLM query expansion (with strong-signal
+short-circuit) and LLM rerank (with position-blend math). Three-state
+matrix on `expand` / `rerank` MCP params (None / True / False).
+`timings` field on every search result with per-stage perf_counter
+deltas. Free-path byte-identical to M3b verified via cmp.
+
+### M5 — Config cascade + dedup + reindex CLI polish
+
+- **`config.py`** — 3-layer cascade (per-call > env > yaml > built-in)
+  per ADR-004. All M3a/M3b/M4 env-var names preserved as Layer-2
+  aliases (DEBUG-once-per-name deprecation log; never WARNING).
+- **`sage-memory reindex`** CLI — `--re-embed --embedder <name>`
+  (full backup + swap), `--embeddings` (partial; stale-meta only),
+  `--memory-id`, `--limit`, `backup-list`, `backup-drop`.
+- **`sage-memory dedup`** CLI — default worker-async enqueue (with
+  at-most-one concurrency contract), `--sync` in-process with
+  sqlite advisory lock, `--provider stub` for cost estimation.
+  Worker implements the `dedup` task type.
+- **`sage-memory queue prune`** manual CLI — bypasses the 24h auto-
+  prune gate; updates `worker_state.last_prune_at`. Migration 007
+  adds the `worker_state` singleton + relaxes
+  `extraction_queue.memory_id` NOT NULL (needed for dedup tasks).
+- **Embedding-tier comparison runner** —
+  `evaluation/longmemeval/run_tier_comparison.py` (opt-in, ~$5-10).
+
+### Upgrade notes (0.5.0 → 0.6.0)
+
+- No breaking config changes. Existing env vars (`SAGE_RERANK_TOP_K`,
+  `SAGE_EXPAND_TOP1_NORM`, etc.) continue to work and take precedence
+  over `.sage/config.yaml`. The new yaml is optional.
+- New CLI commands (`reindex`, `dedup`, `queue`) extend the existing
+  argparse-free dispatch. No change to existing
+  `sage-memory` / `sage-memory status` / `sage-memory worker --status`
+  invocations.
+- Migration 007 lands automatically on first server start. The
+  `extraction_queue` rebuild preserves all existing rows.
+
 ## [0.5.0] — 2025-03-18
 
 ### Added

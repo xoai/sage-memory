@@ -25,7 +25,10 @@ import mcp.types as types
 from .store import store, update, delete, list_memories
 from .search import search, flush_all_access
 from .graph import link, graph
-from .db import get_project_name, close_all, set_project
+from .db import get_project_name, close_all, set_project, get_db
+from .embedder import get_embedder
+from . import llm
+from .worker import Worker
 
 logger = logging.getLogger("sage-memory")
 
@@ -139,6 +142,42 @@ TOOLS = [
                 "scope": {
                     "type": "string", "enum": ["project", "global"],
                     "description": "'project' (default) searches project + global. 'global' searches global only.",
+                },
+                "strategy": {
+                    "type": "string",
+                    "enum": ["hybrid", "semantic", "keyword"],
+                    "description": (
+                        "Retrieval strategy: 'hybrid' (default) "
+                        "combines FTS5 + vector; 'semantic' biases "
+                        "toward vector; 'keyword' uses FTS5 only."
+                    ),
+                },
+                "channels": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": ["bm25", "vector", "graph"],
+                    },
+                    "description": (
+                        "Subset of channels to consult. Default = all "
+                        "available (FTS5 + vector + graph proximity, "
+                        "gracefully degrading when graph is empty). "
+                        "Empty list returns no results."
+                    ),
+                },
+                "expand": {
+                    "type": "boolean",
+                    "description": (
+                        "Reserved for query expansion (M4). Accepted "
+                        "in M3b but has no effect."
+                    ),
+                },
+                "rerank": {
+                    "type": "boolean",
+                    "description": (
+                        "Reserved for LLM rerank (M4). Accepted in "
+                        "M3b but has no effect."
+                    ),
                 },
             },
             "required": ["query"],
@@ -317,11 +356,118 @@ def create_server() -> Server:
     return server
 
 
+def _needs_worker(db) -> bool:
+    """Determine whether the background worker should start.
+
+    Worker starts if ANY of:
+      (1) LLM key configured AND corpus_dim matches active embedder
+          (extraction.enabled resolves to True)
+      (2) Any memories row has embedded=1 but missing/mismatched
+          memory_embedding_meta (stale memory-level embedding)
+      (3) Any chunks row has missing/mismatched chunk_embedding_meta
+          (stale chunk-level embedding)
+      (4) dedup.enabled (always False in M3a — M5)
+    """
+    embedder = get_embedder()
+
+    # (1) Extraction-enabled path
+    if llm.is_configured():
+        corpus_row = db.execute(
+            "SELECT value FROM corpus_meta WHERE key = 'vec_dim'"
+        ).fetchone()
+        if corpus_row and int(corpus_row[0]) == embedder.dim:
+            return True
+
+    params = {
+        "name": embedder.name,
+        "version": embedder.version,
+        "dim": embedder.dim,
+    }
+
+    # (2) Stale memory-level embedding
+    stale_mem = db.execute(
+        """
+        SELECT 1 FROM memories m
+          LEFT JOIN memory_embedding_meta em ON em.memory_id = m.id
+         WHERE m.embedded = 1
+           AND ((em.memory_id IS NULL)
+                OR (em.dim != :dim)
+                OR (em.model_name != :name)
+                OR (em.model_version != :version))
+         LIMIT 1
+        """,
+        params,
+    ).fetchone()
+    if stale_mem is not None:
+        return True
+
+    # (3) Stale chunk-level embedding
+    stale_chunk = db.execute(
+        """
+        SELECT 1 FROM chunks c
+          LEFT JOIN chunk_embedding_meta cm ON cm.chunk_id = c.id
+         WHERE (cm.chunk_id IS NULL)
+            OR (cm.dim != :dim)
+            OR (cm.model_name != :name)
+            OR (cm.model_version != :version)
+         LIMIT 1
+        """,
+        params,
+    ).fetchone()
+    if stale_chunk is not None:
+        return True
+
+    # (4) dedup.enabled — M5
+    return False
+
+
+def _resolve_db_path() -> str | None:
+    """Best-effort current project DB path for the worker.
+
+    Returns None if no project is active (in which case the worker
+    isn't started — the MCP server still runs in stdio-only mode).
+    """
+    try:
+        conn = get_db()
+    except Exception:
+        return None
+    # sqlite3.Connection doesn't expose the file path directly; pull
+    # from PRAGMA database_list. The first row is always `main`
+    # (seq=0) for SQLite, so fetchone() is the right path. Row shape
+    # is (seq, name, file); row[2] is the file path. An in-memory DB
+    # returns empty string — coalesce to None.
+    row = conn.execute("PRAGMA database_list").fetchone()
+    if row is None:
+        return None
+    return row[2] or None
+
+
 async def run() -> None:
     server = create_server()
+    worker: Worker | None = None
+
+    # Try to start the worker if a project is active and conditions
+    # are met. A None-project session is valid (no worker needed).
+    try:
+        db_path = _resolve_db_path()
+        if db_path:
+            conn = get_db()
+            if _needs_worker(conn):
+                worker = Worker(db_path)
+                worker.start()
+    except Exception:
+        logger.exception(
+            "worker: startup probe failed; continuing without worker"
+        )
+        worker = None
+
     try:
         async with stdio_server() as (read, write):
-            await server.run(read, write, server.create_initialization_options())
+            await server.run(
+                read, write, server.create_initialization_options(),
+            )
     finally:
+        if worker is not None:
+            worker.stop()
         flush_all_access()
         close_all()
