@@ -49,7 +49,7 @@ One search returns all three. The agent knows how things work, how they connect,
 
 ### Highlights
 
-- **97.2% recall@5 on LongMemEval-S** with **zero API cost** — pure FTS5+RRF; matches OpenAI-embedded production systems ([details](evaluation/longmemeval/REPRODUCER.md))
+- **97.2% recall@5 on LongMemEval-S, zero API cost** (pure FTS5+RRF). Add an embedder key and it goes to **98.6%** — beating gbrain (0.976) at ~$0.50 per 500q. [Full report](evaluation/longmemeval/REPORT.md) · [Reproducer](evaluation/longmemeval/REPRODUCER.md)
 - **91% recall** on natural language queries — proven on 4 real codebases (340K lines)
 - **Sub-3ms search**, sub-0.3ms graph traversal, ~1,000 writes/sec
 - **Self-learning loop** — mistake → prevention rule → recall → improvement, automatically

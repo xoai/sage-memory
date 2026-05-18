@@ -7,9 +7,19 @@ LongMemEval tests five long-term memory abilities across 500 questions: informat
 📋 **For a step-by-step reproducer walkthrough** (clone → install → run →
 verify against published numbers), see **[REPRODUCER.md](REPRODUCER.md)**.
 
-📊 **For the latest benchmark report** with results vs gbrain, MemPalace,
-and BM25 baselines, see [REPORT.md](REPORT.md) (generated after running
-the full 500q hosted bench).
+📊 **For the latest benchmark report** with results vs gbrain and the
+LongMemEval BM25 baseline, see **[REPORT.md](REPORT.md)**.
+
+## Headline Numbers (500 questions, bm25-full mode)
+
+| Config | R@1 | R@3 | **R@5** | R@10 | Cost |
+|---|---:|---:|---:|---:|---|
+| Free-path (FTS5+RRF, Local 384d) | 0.834 | 0.952 | **0.972** | 0.986 | $0 |
+| Hosted (OpenAI 1536d) | 0.886 | 0.970 | **0.986** | 0.992 | ~$0.50 |
+| gbrain (published) | — | — | 0.976 | — | hosted |
+| LongMemEval BM25 baseline | — | — | ~0.70 | — | $0 |
+
+See [REPORT.md](REPORT.md) for per-question-type breakdown and methodology.
 
 ## Quick Start
 
