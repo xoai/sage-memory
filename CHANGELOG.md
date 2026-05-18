@@ -2,68 +2,111 @@
 
 All notable changes to sage-memory will be documented in this file.
 
+## [0.7.0] — 2026-05-19
+
+Bug fix + benchmark release. The embedder resolver shipped in 0.6.0
+was defined but never invoked at server startup — `get_embedder()`
+returned `LocalEmbedder` regardless of `OPENAI_API_KEY` /
+`VOYAGE_API_KEY` / `COHERE_API_KEY`. 0.7.0 wires the resolver into
+`server.run()` so hosted embedders are actually picked up. Also
+publishes the LongMemEval-S benchmark numbers.
+
+### Fixed
+
+- **Embedder bootstrap** (`server.py`): server now reads
+  `corpus_meta.vec_dim` at startup and calls `resolve(corpus_dim)` +
+  `set_embedder()` before the worker loop starts. Logs the active
+  embedder + dim + quality. `DimMismatchRefuseError` surfaces with a
+  reindex hint instead of silent fallback to local.
+
+### Added
+
+- **`tests/test_embedder_bootstrap.py`** — 6 tests covering the
+  resolver cascade (384d no-key, 384d + OpenAI key, 1536d + OpenAI
+  key, 1536d no-key refuse, `set_embedder()` singleton wiring,
+  `server.run()` bootstrap path).
+- **Hosted-vector benchmark harness**
+  (`evaluation/longmemeval/bench_hosted.py`): recreates
+  `memories_vec` + `chunks_vec` at the hosted embedder's native dim,
+  bypassing the 384d default. Auto-picks the embedder from env
+  (OpenAI 1536d / Voyage 512d / Cohere 1024d).
+- **`evaluation/longmemeval/REPORT.md`** — 500q LongMemEval-S
+  benchmark report. Free-path R@5 = 0.972 ($0); hosted-vector
+  (OpenAI 3-small) R@5 = 0.986 (+1.4pp, ~$0.50 per 500q).
+  Per-question-type breakdown + comparison row vs gbrain.
+- **`evaluation/longmemeval/REPRODUCER.md`** — step-by-step walkthrough
+  for reproducing the benchmark numbers from a clean clone.
+
+### Removed
+
+- Internal ablation scripts (`run_4way_ablation.sh`,
+  `run_curve_ablation.sh`, `run_tier_comparison.py`) — not part of the
+  documented reproducer flow.
+- Legacy v0.5.0 evaluation harness (`evaluation/PROTOCOL.md`,
+  `evaluation/REPORT.md`, four `run_eval*.py` scripts, `seed/`) —
+  superseded by the LongMemEval suite.
+
+### Upgrade notes (0.6.0 → 0.7.0)
+
+- If you were running 0.6.0 with `OPENAI_API_KEY` (or `VOYAGE_API_KEY`
+  / `COHERE_API_KEY`) set expecting hosted embeddings, you were
+  silently on `LocalEmbedder`. 0.7.0 will now pick up the hosted key
+  on startup.
+- If your corpus was written with `LocalEmbedder` (384d) and the
+  resolver picks a non-matching tier (e.g. OpenAI 1536d), sage will
+  refuse to start with a clear reindex hint. Run
+  `sage-memory reindex --re-embed --embedder <name>` to migrate the
+  vec tables before restarting.
+
 ## [0.6.0] — 2026-05-17
 
-Retrieval upgrade — ontology-aware indexing + multi-stage search pipeline.
-Backwards-compatible: existing env-var tunables continue to work as
-Layer-2 aliases over the new yaml-based config cascade.
+Retrieval upgrade — ontology-aware indexing + multi-stage search
+pipeline. Backwards-compatible: existing env-var tunables continue
+to work over the new yaml-based config cascade.
 
-### M1 — Schema foundation + embedder cascade
+### Added
 
-Migrations 003-006 add chunks, entities/mentions/relations, embedding
-metadata, and the background extraction queue. Embedder tiering
-(local/fastembed/openai/voyage/cohere) is resolved at startup with
-explicit error when corpus_meta.vec_dim doesn't match an available tier.
-
-### M2 — Chunking
-
-`chunker.py` splits long memories at paragraph/sentence boundaries;
-chunk-aware retrieval folds chunk hits back to parent memories via
-the chunks_vec / chunks_fts virtual tables.
-
-### M3a — Background worker + entity/relation extraction
-
-`worker.py` polls the extraction_queue; `llm.py` provides a provider
-cascade (Anthropic primary, OpenAI fallback) with retry + code-fence
-stripping; `extractor.py` does inline entity/relation extraction with
-controlled-vocab type validation. Worker handles `extract` + `reembed`
-tasks asynchronously. Free-path floor: no LLM key → no extraction;
-search degrades gracefully.
-
-### M3b — Graph channel + 3-channel RRF
-
-`graph_channel.py` implements two-layer BFS (entity-mediated + memory-
-direct via edges) with three configurable rank curves
-(linear / harmonic / type-weighted). `search.py` threads the graph
-channel as a third RRF leg alongside bm25 and vector. New MCP params
-`channels` + `strategy` + `expand` + `rerank`.
-
-### M4 — Search-side LLM (expansion + rerank)
-
-`expand.py` + `rerank.py` add LLM query expansion (with strong-signal
-short-circuit) and LLM rerank (with position-blend math). Three-state
-matrix on `expand` / `rerank` MCP params (None / True / False).
-`timings` field on every search result with per-stage perf_counter
-deltas. Free-path byte-identical to M3b verified via cmp.
-
-### M5 — Config cascade + dedup + reindex CLI polish
-
-- **`config.py`** — 3-layer cascade (per-call > env > yaml > built-in)
-  per ADR-004. All M3a/M3b/M4 env-var names preserved as Layer-2
-  aliases (DEBUG-once-per-name deprecation log; never WARNING).
+- **Chunked retrieval** (`chunker.py`) — splits long memories at
+  paragraph/sentence boundaries; chunk hits fold back to their
+  parent memory at search time via dedicated `chunks_fts` /
+  `chunks_vec` virtual tables.
+- **Knowledge graph channel** (`graph_channel.py`) — two-layer BFS
+  (entity-mediated + memory-direct via edges) with three configurable
+  rank curves (linear / harmonic / type-weighted). Joins the BM25 +
+  vector channels as a third leg of RRF fusion.
+- **Background extraction worker** (`worker.py` + `extractor.py`) —
+  polls a persistent `extraction_queue` and runs inline LLM
+  entity/relation extraction with controlled-vocab type validation.
+  Provider cascade (Anthropic primary, OpenAI fallback) with retry
+  and code-fence stripping. Free-path floor: no LLM key → no
+  extraction; search degrades gracefully.
+- **LLM query expansion + rerank** (`expand.py` + `rerank.py`) —
+  optional query expansion produces `{lex, vec, hyde}` variants with
+  a strong-signal short-circuit; optional rerank applies a position-
+  blend curve over the top-K. New MCP params: `expand`, `rerank`,
+  `channels`, `strategy` (three-state: None / True / False).
+- **Embedder cascade** — local / fastembed / OpenAI / Voyage / Cohere
+  tiering resolved against `corpus_meta.vec_dim`; explicit error when
+  the configured tier doesn't match the corpus dim.
+- **Config cascade** (`config.py`) — per-call > env > yaml > built-in.
+  All existing env-var names continue to work (deprecation logged
+  once per name at DEBUG, never WARNING).
 - **`sage-memory reindex`** CLI — `--re-embed --embedder <name>`
   (full backup + swap), `--embeddings` (partial; stale-meta only),
   `--memory-id`, `--limit`, `backup-list`, `backup-drop`.
-- **`sage-memory dedup`** CLI — default worker-async enqueue (with
-  at-most-one concurrency contract), `--sync` in-process with
-  sqlite advisory lock, `--provider stub` for cost estimation.
-  Worker implements the `dedup` task type.
-- **`sage-memory queue prune`** manual CLI — bypasses the 24h auto-
-  prune gate; updates `worker_state.last_prune_at`. Migration 007
-  adds the `worker_state` singleton + relaxes
-  `extraction_queue.memory_id` NOT NULL (needed for dedup tasks).
-- **Embedding-tier comparison runner** —
-  `evaluation/longmemeval/run_tier_comparison.py` (opt-in, ~$5-10).
+- **`sage-memory dedup`** CLI — default worker-async enqueue with
+  at-most-one concurrency contract, `--sync` in-process with sqlite
+  advisory lock, `--provider stub` for cost estimation.
+- **`sage-memory queue prune`** CLI — manual prune that bypasses the
+  24h auto-prune gate.
+- **`timings`** field on every search result with per-stage
+  perf_counter deltas.
+
+### Schema
+
+Migrations add chunks, entities / mentions / relations, embedding
+metadata, the extraction queue, and the worker-state singleton.
+`extraction_queue.memory_id` is now nullable to support dedup tasks.
 
 ### Upgrade notes (0.5.0 → 0.6.0)
 
@@ -71,10 +114,9 @@ deltas. Free-path byte-identical to M3b verified via cmp.
   `SAGE_EXPAND_TOP1_NORM`, etc.) continue to work and take precedence
   over `.sage/config.yaml`. The new yaml is optional.
 - New CLI commands (`reindex`, `dedup`, `queue`) extend the existing
-  argparse-free dispatch. No change to existing
-  `sage-memory` / `sage-memory status` / `sage-memory worker --status`
-  invocations.
-- Migration 007 lands automatically on first server start. The
+  dispatch. No change to existing `sage-memory` /
+  `sage-memory status` / `sage-memory worker --status` invocations.
+- Migrations land automatically on first server start. The
   `extraction_queue` rebuild preserves all existing rows.
 
 ## [0.5.0] — 2025-03-18

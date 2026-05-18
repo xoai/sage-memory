@@ -10,11 +10,11 @@
 
 sage-memory is a local [MCP](https://modelcontextprotocol.io) memory server for AI agents. It gives any AI assistant — coding tools, personal agents, team copilots — three kinds of persistent memory that compound over time:
 
-**Knowledge** — what you understand. Architecture, conventions, preferences, domain logic. *(→ memory skill)*
+- **Knowledge** — what you understand. Architecture, conventions, preferences, domain logic. *(→ memory skill)*
 
-**Structure** — how things connect. Entity relationships, dependency graphs, ownership. *(→ ontology skill)*
+- **Structure** — how things connect. Entity relationships, dependency graphs, ownership. *(→ ontology skill)*
 
-**Experience** — what you've learned the hard way. Mistakes, corrections, prevention rules. *(→ self-learning skill)*
+- **Experience** — what you've learned the hard way. Mistakes, corrections, prevention rules. *(→ self-learning skill)*
 
 One search returns all three. The agent knows how things work, how they connect, and what to watch out for — the way a human expert thinks about a domain.
 
@@ -44,7 +44,7 @@ One search returns all three. The agent knows how things work, how they connect,
 ### Why sage-memory
 
 - **The agent gets better every session.** Mistakes become prevention rules. Prevention rules compound across projects. The agent develops judgment, not just a bigger database.
-- **Intelligence lives in skills, not in the server.** The server is fast and dumb (~1,500 lines). Three skills teach the agent *what* to remember, *how* to learn from errors, and *when* to recall. Improve the agent by editing a markdown file, not shipping code.
+- **Intelligence lives in skills, not in the server.** The server is fast and dumb. Three skills teach the agent *what* to remember, *how* to learn from errors, and *when* to recall. Improve the agent by editing a markdown file, not shipping code.
 - **Zero infrastructure. One SQLite file.** No Docker, no Redis, no cloud, no API keys. Your knowledge never leaves your machine.
 
 ### Highlights
@@ -55,7 +55,7 @@ One search returns all three. The agent knows how things work, how they connect,
 - **Self-learning loop** — mistake → prevention rule → recall → improvement, automatically
 - **Graph-native** — typed edges with cycle-safe multi-hop traversal
 - **Six-stage retrieval pipeline** with chunking, query expansion, and rerank — all optional, all opt-in via API key
-- **Lean** — 3 dependencies, ~3,000 lines, no ML stack required for the free path
+- **Lean** — 4 runtime dependencies, no ML stack required for the free path
 
 ## Setup
 
@@ -314,14 +314,45 @@ zero-config promise — install, store, search.
 ## Architecture
 
 ```
-src/sage_memory/           ~1,500 lines · 2 dependencies (mcp, sqlite-vec)
-├── server.py              8 MCP tools, dict dispatch
-├── search.py              Dual-DB, FTS5 OR, RRF, filter_tags
-├── store.py               Store, update, delete, list
-├── graph.py               Link management, cycle-safe traversal
-├── embedder.py            Protocol + local + optional neural
-├── db.py                  Project detection, set_project, dual DB, migrations
-└── migrations/            memories + FTS5 + vec0 + edges
+src/sage_memory/           ~7,000 lines · 4 deps (mcp, sqlite-vec, httpx, pyyaml)
+
+  Server
+  ├── server.py            MCP server: 8 tools, dict dispatch
+  └── __main__.py          CLI entry
+
+  Storage + DB
+  ├── db.py                Project detection, dual DB, migration runner
+  ├── store.py             Memory CRUD (store, update, delete, list)
+  ├── graph.py             Edge management, cycle-safe traversal
+  └── migrations/          8 SQL migrations: memories + FTS5 + vec0,
+                           edges, health, chunks, entities,
+                           embedding metadata, extraction queue,
+                           worker state
+
+  Retrieval pipeline (six stages: expand → retrieve → fuse →
+  dedup → rerank → score)
+  ├── search.py            Dual-DB orchestration, BM25 + RRF, scoring
+  ├── expand.py            LLM query expansion (optional)
+  ├── rerank.py            LLM rerank with position blend (optional)
+  ├── graph_channel.py     Entity-mediated BFS — third RRF channel
+  └── chunker.py           Paragraph/sentence-aware splitter
+
+  Embedder cascade
+  └── embedder.py          Local + FastEmbed + OpenAI + Voyage + Cohere
+
+  Background worker + LLM
+  ├── worker.py            Polling loop, at-most-one task contract
+  ├── extractor.py         LLM entity/relation extraction
+  ├── llm.py               Provider cascade with retry
+  ├── dedup.py             LLM-confirmed memory deduplication
+  └── config.py            3-layer config cascade (call > env > yaml > built-in)
+
+  CLI (sage-memory <subcommand>)
+  ├── cli_status.py        status
+  ├── cli_worker.py        worker
+  ├── cli_reindex.py       reindex (--re-embed, --embeddings, ...)
+  ├── cli_dedup.py         dedup (async / --sync)
+  └── cli_queue.py         queue prune
 
 skills/                    3 built-in skills (usable independently)
 ├── memory/                Knowledge persistence + capture
