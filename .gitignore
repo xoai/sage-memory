@@ -3,6 +3,10 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
 
 # Sage agent scaffolding (not part of the published package)
 .sage/
