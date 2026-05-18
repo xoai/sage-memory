@@ -264,13 +264,12 @@ the architecture decision records.
 - **`graph`** — entity-mediated proximity. Two-layer BFS over auto-
   extracted entity mentions + manual edges; contributes when an
   LLM key is configured and the worker has populated the entity
-  graph. The default channel weight is 0.7
-  ([ADR-004](.sage/docs/decision-004-search-pipeline.md)).
+  graph. The default channel weight is 0.7.
 
 **The six stages** (per call, in order):
 1. **expand** — optional LLM query expansion produces `{lex, vec,
    hyde}` variants. A strong-signal short-circuit on the FTS5 bm25
-   score (per [ADR-004](.sage/docs/decision-004-search-pipeline.md)
+   score (per ADR-004
    §"Strong-signal short-circuit") skips the LLM call when the top
    hit is confident.
 2. **retrieve** — per-channel candidate fetch. Lex variants extend
@@ -278,7 +277,7 @@ the architecture decision records.
 3. **fuse** — weighted RRF across the three channels collapses to
    a single ranked list.
 4. **dedup** — chunk-to-memory rollup. Chunks live in the schema
-   shipped by [ADR-001](.sage/docs/decision-001-storage-schema.md);
+   shipped by ADR-001;
    chunk hits are folded back into their parent memory.
 5. **rerank** — optional LLM rerank on the top-K candidates with a
    position-blend curve `[0.75, 0.6, 0.4]` over positions
@@ -288,13 +287,13 @@ the architecture decision records.
 
 **Background machinery:**
 - The **extraction worker** (M3a; see
-  [ADR-003](.sage/docs/decision-003-entity-extraction.md)) processes
+  ADR-003) processes
   writes asynchronously, populating entities, mentions, and
   relations for the graph channel. It also handles `reembed` tasks
   (used by `sage-memory reindex`) and `dedup` tasks (LLM-confirmed
   entity merging).
 - The **embedder cascade**
-  ([ADR-005](.sage/docs/decision-005-embedding-lifecycle.md))
+  (ADR-005)
   resolves a corpus-locked embedder tier at startup. Switching
   tiers requires `sage-memory reindex --re-embed --embedder <name>`
   to atomically swap `memories_vec` + `chunks_vec` and queue

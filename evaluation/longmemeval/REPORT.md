@@ -64,17 +64,15 @@ Three types saturate to 1.000 with hosted vector. The largest lifts come from `s
 
 ## Reproducibility
 
-- All numbers reproduce byte-for-byte. The harness is deterministic — no random sources in the metric path. See REPRODUCER.md for the exact commands.
-- Free-path baseline log: `.sage/work/20260516-retrieval-upgrade/M0/runs/bm25-full.log`
-- Hosted-vector run log: `/tmp/bench_hosted_500_all.log` (regenerable)
-- Result JSONLs in `evaluation/longmemeval/results/` are gitignored (large + regenerable).
+- All numbers reproduce byte-for-byte. The harness is deterministic — no random sources in the metric path. See [REPRODUCER.md](REPRODUCER.md) for the exact commands.
+- Bench output (per-question hit/miss + result JSONLs) is regenerable by re-running the harness; result files are gitignored to keep the repo small.
 
-To re-run:
+To re-run (after downloading the dataset per [REPRODUCER.md](REPRODUCER.md)):
 
 ```bash
 # free-path (no API key)
 python evaluation/longmemeval/bench_longmemeval.py \
-  evaluation/longmemeval/data/longmemeval_s_cleaned.json --mode bm25-full
+  <path-to-longmemeval_s_cleaned.json> --mode bm25-full
 
 # hosted-vector (with API key)
 OPENAI_API_KEY=sk-... python evaluation/longmemeval/bench_hosted.py bm25-full
