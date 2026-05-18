@@ -19,20 +19,20 @@ sage-memory is a local [MCP](https://modelcontextprotocol.io) memory server for 
 One search returns all three. The agent knows how things work, how they connect, and what to watch out for — the way a human expert thinks about a domain.
 
 ```
-  memory skill        ontology skill       self-learning skill
-       │                    │                      │
-       ▼                    ▼                      ▼
+  memory skill      ontology skill      self-learning skill
+       │                  │                     │
+       ▼                  ▼                     ▼
   ┌─────────┐       ┌────────────┐        ┌────────────┐
   │Knowledge│       │ Structure  │        │ Experience │
   │ (prose) │       │  (graph)   │        │  (rules)   │
   └────┬────┘       └─────┬──────┘        └─────┬──────┘
-       │                  │                      │
-       └──────────────────┼──────────────────────┘
+       │                  │                     │
+       └──────────────────┼─────────────────────┘
                           ▼
                 ┌───────────────────┐
                 │    sage-memory    │
                 │  one SQLite file  │
-                │  FTS5 + vec + edges│
+                │ FTS5 + vec + edges│
                 └────────┬──────────┘
                          │
                          ▼
@@ -238,6 +238,17 @@ Graph: 0.19ms P50 edge creation, 0.17ms P50 traversal. 49 tests, all passing.
 
 On LLM-authored content (the real use case): **91% overall recall** — 100% on API lookups, workflow, and architecture queries.
 
+## LongMemEval-S — Benchmark
+
+| Config | R@1 | R@3 | **R@5** | R@10 | API cost |
+|---|---|---|---|---|---|
+| **Free-path** (FTS5 + RRF, LocalEmbedder 384d) | 0.834 | 0.952 | **0.972** | 0.986 | **$0** |
+| **Hosted-vector** (FTS5 + RRF + OpenAI 1536d) | 0.886 | 0.970 | **0.986** | 0.992 | ~$0.50 per 500q |
+| Hosted-vector Δ over free-path | +5.2pp | +1.8pp | **+1.4pp** | +0.6pp | |
+
+- **Free-path 97.2% R@5** is the headline number for users with no embedder API key. Pure FTS5 BM25 + chunk-level RRF fusion, 384d local embeddings used only for the vector channel (which contributes little to R@5 on this dataset). No LLM calls in the retrieval path.
+- **Hosted-vector 98.6% R@5** demonstrates the ADR-005 cascade is doing real work when a hosted embedder is configured. The +1.4pp lift comes mostly from semantic question types (single-session-preference, temporal-reasoning).
+
 ## Optional: Neural Embeddings
 
 Default uses a zero-dependency local embedder. For higher semantic recall:
@@ -269,32 +280,27 @@ the architecture decision records.
 **The six stages** (per call, in order):
 1. **expand** — optional LLM query expansion produces `{lex, vec,
    hyde}` variants. A strong-signal short-circuit on the FTS5 bm25
-   score (per ADR-004
-   §"Strong-signal short-circuit") skips the LLM call when the top
+   score skips the LLM call when the top
    hit is confident.
 2. **retrieve** — per-channel candidate fetch. Lex variants extend
    the bm25 channel; vec/hyde extend the vector channel.
 3. **fuse** — weighted RRF across the three channels collapses to
    a single ranked list.
 4. **dedup** — chunk-to-memory rollup. Chunks live in the schema
-   shipped by ADR-001;
+   shipped;
    chunk hits are folded back into their parent memory.
 5. **rerank** — optional LLM rerank on the top-K candidates with a
    position-blend curve `[0.75, 0.6, 0.4]` over positions
-   `[1-3, 4-10, 11+]` (per ADR-004 §"Rerank position-blend").
+   `[1-3, 4-10, 11+]`.
 6. **score** — tag boost, recency tiebreaker, project-vs-global
    priority. Final ordering returned to the caller.
 
 **Background machinery:**
-- The **extraction worker** (M3a; see
-  ADR-003) processes
-  writes asynchronously, populating entities, mentions, and
+- The **extraction worker** processes writes asynchronously, populating entities, mentions, and
   relations for the graph channel. It also handles `reembed` tasks
   (used by `sage-memory reindex`) and `dedup` tasks (LLM-confirmed
   entity merging).
-- The **embedder cascade**
-  (ADR-005)
-  resolves a corpus-locked embedder tier at startup. Switching
+- The **embedder cascade** resolves a corpus-locked embedder tier at startup. Switching
   tiers requires `sage-memory reindex --re-embed --embedder <name>`
   to atomically swap `memories_vec` + `chunks_vec` and queue
   reembed tasks.
@@ -321,11 +327,6 @@ skills/                    3 built-in skills (usable independently)
 ├── memory/                Knowledge persistence + capture
 ├── ontology/              Typed knowledge graph
 └── self-learning/         Mistake detection + prevention rules
-
-docs/
-├── adr-architecture.md    Full architectural decision record
-├── skill-authoring.md     Build your own skills
-└── storage-protocol.md    Tag, content, scope conventions
 ```
 
 ## Development
