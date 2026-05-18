@@ -4,6 +4,13 @@ Integration of [LongMemEval](https://github.com/xiaowu0162/longmemeval) (ICLR 20
 
 LongMemEval tests five long-term memory abilities across 500 questions: information extraction, multi-session reasoning, knowledge updates, temporal reasoning, and abstention.
 
+📋 **For a step-by-step reproducer walkthrough** (clone → install → run →
+verify against published numbers), see **[REPRODUCER.md](REPRODUCER.md)**.
+
+📊 **For the latest benchmark report** with results vs gbrain, MemPalace,
+and BM25 baselines, see [REPORT.md](REPORT.md) (generated after running
+the full 500q hosted bench).
+
 ## Quick Start
 
 ```bash
@@ -63,6 +70,51 @@ python bench_longmemeval.py data/longmemeval_oracle.json --mode bm25 --limit 20
 ```
 
 Outputs Recall@k and NDCG@k at session and turn level, per question type breakdown, and a JSONL log compatible with LongMemEval's evaluation pipeline.
+
+## Hosted-Vector Benchmark (bench_hosted.py)
+
+Tests sage-memory with a hosted embedder (OpenAI / Voyage / Cohere) for
+side-by-side comparison against the free-path (FTS5-only) baseline.
+
+The bench harness's standard mode runs each question against a fresh
+per-question DB. Fresh DBs default to `vec_dim=384` (per migration 001),
+so the embedder resolver picks FastEmbedder/LocalEmbedder even when
+`OPENAI_API_KEY` is set. `bench_hosted.py` works around this by
+recreating `memories_vec` + `chunks_vec` at the hosted embedder's
+native dim before any `store()` call.
+
+```bash
+# 1. Set the hosted-embedder API key (one of)
+export OPENAI_API_KEY=sk-...     # → text-embedding-3-small, 1536d
+export VOYAGE_API_KEY=pa-...     # → voyage-3-lite, 512d
+export COHERE_API_KEY=...        # → embed-english-v3.0, 1024d
+
+# 2. Run benchmark
+# Full 500q on bm25-full mode (~3 hours, ~$0.50 with OpenAI)
+python bench_hosted.py bm25-full
+
+# 50 questions (~25 min, ~$0.05)
+python bench_hosted.py bm25-full 50
+
+# Filter by question_type (n=30 for preference, ~17 min)
+python bench_hosted.py bm25-full 999 single-session-preference
+```
+
+Outputs aggregate R@1/R@3/R@5/R@10 plus per-question-type R@5 breakdown.
+
+Modes match the free-path bench (`bm25` / `bm25-full` / `hybrid-temporal`).
+LLM stages (expand/rerank) are forced off so the comparison isolates the
+vector-channel contribution.
+
+### When to use which bench
+
+| | `bench_longmemeval.py` | `bench_hosted.py` |
+|---|---|---|
+| Default embedder | LocalEmbedder (384d) | OpenAI/Voyage/Cohere (auto) |
+| Free-path scrub | Recommended | Not applicable |
+| Cost | $0 | ~$0.05 per 50q with OpenAI |
+| What it measures | Pure FTS5 + chunk RRF | Adds the vector channel |
+| Use for | The headline number | Marginal lift from hosted vector |
 
 ## QA Benchmark (run_longmemeval.py)
 

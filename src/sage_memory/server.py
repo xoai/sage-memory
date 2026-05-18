@@ -26,7 +26,10 @@ from .store import store, update, delete, list_memories
 from .search import search, flush_all_access
 from .graph import link, graph
 from .db import get_project_name, close_all, set_project, get_db
-from .embedder import get_embedder
+from .embedder import (
+    get_embedder, set_embedder, resolve, DimMismatchRefuseError,
+    LocalEmbedder,
+)
 from . import llm
 from .worker import Worker
 
@@ -457,6 +460,38 @@ def _resolve_db_path() -> str | None:
 async def run() -> None:
     server = create_server()
     worker: Worker | None = None
+
+    # M5 follow-up — wire ADR-005 resolver at startup so an API key in
+    # env actually activates the matching hosted embedder. Without this,
+    # get_embedder() defaults to LocalEmbedder regardless of keys.
+    try:
+        conn = get_db()
+        row = conn.execute(
+            "SELECT value FROM corpus_meta WHERE key = 'vec_dim'"
+        ).fetchone()
+        corpus_dim = int(row["value"]) if row else 384
+        embedder = resolve(corpus_dim)
+        set_embedder(embedder)
+        logger.info(
+            "embedder: %s active (dim=%d, quality=%.2f)",
+            type(embedder).__name__, embedder.dim, embedder.quality,
+        )
+    except DimMismatchRefuseError as e:
+        # Spec-mandated refusal: corpus_dim doesn't match any available
+        # tier. Don't silently down-project. Log and re-raise so the
+        # operator sees the failure and runs `sage-memory reindex`.
+        logger.error(
+            "embedder: refusing to start — %s. "
+            "Run: sage-memory reindex --re-embed --embedder <name>",
+            e,
+        )
+        raise
+    except Exception:
+        logger.exception(
+            "embedder: resolver bootstrap failed; falling back to "
+            "LocalEmbedder (384d, quality 0.45)"
+        )
+        set_embedder(LocalEmbedder())
 
     # Try to start the worker if a project is active and conditions
     # are met. A None-project session is valid (no worker needed).

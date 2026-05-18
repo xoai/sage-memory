@@ -49,11 +49,13 @@ One search returns all three. The agent knows how things work, how they connect,
 
 ### Highlights
 
+- **97.2% recall@5 on LongMemEval-S** with **zero API cost** — pure FTS5+RRF; matches OpenAI-embedded production systems ([details](evaluation/longmemeval/REPRODUCER.md))
 - **91% recall** on natural language queries — proven on 4 real codebases (340K lines)
 - **Sub-3ms search**, sub-0.3ms graph traversal, ~1,000 writes/sec
 - **Self-learning loop** — mistake → prevention rule → recall → improvement, automatically
 - **Graph-native** — typed edges with cycle-safe multi-hop traversal
-- **2 dependencies, ~1,500 lines** — lean, auditable, no ML stack required
+- **Six-stage retrieval pipeline** with chunking, query expansion, and rerank — all optional, all opt-in via API key
+- **Lean** — 3 dependencies, ~3,000 lines, no ML stack required for the free path
 
 ## Setup
 
