@@ -35,8 +35,8 @@ During recall, learnings surface as warnings alongside regular knowledge.
 | Update learnings | ✅ `sage_memory_update` | ✅ edit file |
 | Delete learnings | ✅ `sage_memory_delete` | ✅ delete file |
 | Browse by type | ✅ `sage_memory_list` | ✅ scan `lrn-` files |
-| Link to entities | ✅ `sage_memory_link` | ❌ skip |
-| Graph-based recall | ✅ `sage_memory_graph` | ❌ skip |
+| Link to entities | ✅ `sage_memory_link` | ⚠️ `relations:` frontmatter (see ontology skill) |
+| Multi-hop graph recall | ✅ `sage_memory_graph` | ❌ single-hop scan only |
 | Namespace isolation | ✅ `filter_tags` | ✅ `lrn-` filename prefix |
 
 **How to detect backend:** At session start, call `sage_memory_set_project`

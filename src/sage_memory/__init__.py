@@ -8,8 +8,17 @@ Entry point dispatch:
 
 import asyncio
 import sys
+from importlib.metadata import PackageNotFoundError, version as _pkg_version
 
 from .server import run
+
+
+try:
+    __version__ = _pkg_version("sage-memory")
+except PackageNotFoundError:
+    # Source checkout without installed metadata — fall back to a
+    # placeholder so the marker-block version line stays well-formed.
+    __version__ = "0.0.0+unknown"
 
 
 def main():
@@ -39,6 +48,10 @@ def main():
     if argv[0] == "queue":
         from .cli_queue import run_queue
         sys.exit(run_queue(argv[1:]))
+
+    if argv[0] == "install-skills":
+        from .cli_install_skills import run_install_skills
+        sys.exit(run_install_skills(argv[1:]))
 
     if argv[0] == "worker":
         # `worker --status` is the only flag in M3a; `worker --help`
@@ -75,6 +88,8 @@ Usage:
   sage-memory status          Show active embedder + corpus dim + stale count
   sage-memory worker --status Show background-worker queue depth
   sage-memory reindex --help  Re-embed memories + chunks (full or partial)
+  sage-memory install-skills --help
+                              Install built-in skills into AI agents
   sage-memory --help          Show this help
 
 The MCP server speaks stdio; launch it from your MCP client config.

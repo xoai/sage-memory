@@ -147,64 +147,75 @@ namespace isolation.
 ## File-Based Storage (Fallback)
 
 When sage-memory MCP tools are not available, store learnings in
-structured markdown files.
+the same `.sage-memory/` directory the MCP server would use — one
+markdown file per learning, prefixed `lrn-`. This is the same
+fallback layout described in SKILL.md and shared with the memory
+and ontology skills (one directory, three skill facets, separated
+by the `type:` frontmatter field).
 
 ### Directory Structure
 
 ```
-.sage/
-└── learnings/
-    ├── project.md        ← project-scope learnings
-    └── global.md         ← global-scope learnings (if no ~/.sage-memory)
+<project-root>/.sage-memory/
+  ├── lrn-stripe-webhook-raw-body.md       ← project-scope learning
+  ├── lrn-pnpm-workspace.md
+  └── ...
+~/.sage-memory/
+  ├── lrn-postgres-jsonb-index.md          ← global-scope learning
+  └── ...
 ```
 
-For global learnings without sage-memory, use `~/.sage/learnings/global.md`.
+One file per learning. Filename slug = short summary, kebab-case,
+prefixed `lrn-`. Project vs global is determined by which
+`.sage-memory/` directory the file lives in (project's vs `~`).
 
 ### File Format
 
 ```markdown
-# Learnings
+---
+tags: [self-learning, gotcha, stripe, webhooks]
+type: learning
+scope: project
+created: 2026-03-20
+---
 
-## [LRN:gotcha] Stripe webhook requires raw body before JSON parsing
+[LRN:gotcha] Stripe webhook requires raw body before JSON parsing
 
-**Type:** gotcha
-**Scope:** project
-**Date:** 2026-03-17
-**Tags:** stripe, webhooks, express
+What happened: Webhook signature verification failed with 400
+"No signatures found matching the expected signature."
 
-What happened: Webhook signature verification failed with misleading 400.
-Why: Express body parser replaced raw body with parsed JSON.
-What's correct: Use express.raw() middleware for the webhook route.
+Why: Express body parser replaced raw body with parsed JSON before
+the Stripe SDK could verify the signature.
+
+What's correct: Use express.raw({type: 'application/json'})
+middleware for the webhook route, before the global body parser.
+
 Prevention: Before implementing any webhook handler that verifies
-signatures, check if the SDK requires the raw request body.
-
----
-
-## [LRN:correction] This project uses pnpm workspaces not npm
-
-**Type:** correction
-**Scope:** project
-**Date:** 2026-03-17
-**Tags:** pnpm, package-manager
-
-Attempted to run npm install but project uses pnpm workspaces. Lock
-file is pnpm-lock.yaml.
-Prevention: Before running any install command, check for pnpm-lock.yaml,
-yarn.lock, or bun.lockb in the project root.
-
----
+signatures (Stripe, GitHub, Twilio), check whether the SDK requires
+the raw request body. If yes, ensure body parsing middleware is
+skipped or deferred for that route.
 ```
+
+The `type: learning` value is what distinguishes a self-learning
+entry from a memory (`type: knowledge`) or an ontology entry
+(`type: ontology`) when MCP isn't available. The fallback `tags`
+array must include `self-learning` so a future migration to MCP
+preserves namespace isolation via `filter_tags`.
 
 ### Fallback Search
 
-Without sage-memory, search by reading the file and scanning for
-relevant headings and tags. For small files (<100 entries), the agent
-can read the full file at session start. For larger files, scan headings
-first and read relevant sections.
+Without sage-memory, search by listing `lrn-*.md` files and
+scanning their filenames. Slug names (`lrn-stripe-webhook-raw-body`)
+are intentionally descriptive so agents can pick relevant entries
+without reading every file's body.
+
+For broad scans (10+ files), read the YAML frontmatter only and
+filter by `tags`. Read full body content only for matching files.
 
 ### Migration to sage-memory
 
 When sage-memory becomes available, the skill can migrate file-based
-learnings by reading each entry and calling `sage_memory_store` with the
-parsed title, content, tags, and scope. sage-memory's SHA-256 dedup
-prevents duplicates if migration runs multiple times.
+learnings by reading each `.sage-memory/lrn-*.md` file and calling
+`sage_memory_store` with the parsed title (`[LRN:type] description`
+line), body content, frontmatter `tags`, and `scope`. sage-memory's
+SHA-256 dedup prevents duplicates if migration runs multiple times.

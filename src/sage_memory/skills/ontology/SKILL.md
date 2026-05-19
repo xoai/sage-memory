@@ -225,6 +225,35 @@ Plan: "Set up feature project with tasks"
 7. VALIDATE: no cycles ✓, cardinality ✓
 ```
 
+### Validating a planned mutation with `graph_check.py`
+
+`scripts/graph_check.py` is a zero-dependency Python validator. Pipe
+it a JSON document describing the entities and proposed relations to
+get a structural OK / FAIL plus a list of violations. Use it before
+the agent calls `sage_memory_link` for a non-trivial plan.
+
+```bash
+python3 scripts/graph_check.py <<'EOF'
+{
+  "entities": [
+    {"id": "proj_c9d0", "type": "Project"},
+    {"id": "task_a1b2", "type": "Task"},
+    {"id": "task_f3a4", "type": "Task"}
+  ],
+  "relations": [
+    {"from": "proj_c9d0", "to": "task_a1b2", "rel": "has_task"},
+    {"from": "proj_c9d0", "to": "task_f3a4", "rel": "has_task"},
+    {"from": "task_a1b2", "to": "task_f3a4", "rel": "blocks"}
+  ]
+}
+EOF
+```
+
+Exit code 0 = valid; 1 = violations (printed as JSON to stdout).
+Checks type compatibility, cardinality, and acyclicity for `blocks`
+and `depends_on` chains. See the script's docstring for the full
+input schema.
+
 ## Validation Rules
 
 ### Required Properties
@@ -239,14 +268,27 @@ Plan: "Set up feature project with tasks"
 
 ### Relation Types
 
+The full controlled vocabulary lives in
+[`references/schema.md`](references/schema.md). All 11 built-in
+relations:
+
 | Relation | From → To | Cardinality | Acyclic |
 |----------|-----------|-------------|---------|
-| has_owner | Project,Task → Person | many_to_one | no |
-| has_task | Project → Task | one_to_many | no |
+| has_owner | Project, Task → Person | many_to_one | no |
 | assigned_to | Task → Person | many_to_one | no |
+| has_task | Project → Task | one_to_many | no |
+| has_goal | Project → Goal | one_to_many | no |
+| part_of | Task, Document, Event → Project | many_to_one | no |
 | blocks | Task → Task | many_to_many | **yes** |
-| part_of | Task,Document → Project | many_to_one | no |
-| depends_on | Task,Project → Task,Project | many_to_many | **yes** |
+| depends_on | Task, Project → Task, Project, Event | many_to_many | **yes** |
+| member_of | Person → Organization | many_to_many | no |
+| mentions | Document, Message, Note → Person, Project, Task, Event | many_to_many | no |
+| follows_up | Task, Event → Event, Message | many_to_one | no |
+| attendee_of | Person → Event | many_to_many | no |
+
+Custom relation strings are accepted by `sage_memory_link` but only
+the 11 above are validated by `graph_check.py`. Stick to the
+controlled vocabulary unless the project clearly needs an extension.
 
 **Credential safety:** Never store `password`, `secret`, `token`,
 `api_key` as properties.

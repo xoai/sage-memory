@@ -13,53 +13,49 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_readme_retrieval_pipeline_section_meets_bar():
-    """README has a 'Retrieval Pipeline' section ≥250 words; cites
-    ADR-001/003/004/005; mentions all 3 channels + 6 stages."""
+    """README has a 'Retrieval Pipeline' section ≥250 words; mentions
+    all 3 channels + 6 stages. (ADR citations removed in 0.7.0 docs
+    cleanup — ADRs live in gitignored .sage/docs/.)"""
     readme = (_REPO_ROOT / "README.md").read_text(encoding="utf-8")
     assert "Retrieval Pipeline" in readme, (
         "README must have a '## Retrieval Pipeline' section"
     )
 
-    # Extract the section body
     sections = readme.split("## Retrieval Pipeline", 1)
     assert len(sections) == 2
     after = sections[1]
-    # End at the next H2 heading
     body = after.split("\n## ", 1)[0]
 
-    # Word count ≥250
     words = len(body.split())
     assert words >= 250, (
         f"Retrieval Pipeline section must be ≥250 words; got {words}"
     )
 
-    # Cite 4 ADRs by ID
-    for adr in ("ADR-001", "ADR-003", "ADR-004", "ADR-005"):
-        assert adr in body, f"section must cite {adr} by ID"
-
-    # All 3 channels named
     for ch in ("bm25", "vector", "graph"):
         assert ch in body.lower(), f"section must mention {ch} channel"
 
-    # All 6 pipeline stages named
     for stage in ("expand", "retrieve", "fuse", "dedup", "rerank", "score"):
         assert stage in body.lower(), (
             f"section must name pipeline stage: {stage}"
         )
 
 
-def test_changelog_per_milestone_entries():
-    """CHANGELOG has a 0.6.0 release header with one entry per
-    shipped milestone: M1, M2, M3a, M3b, M4, M5."""
+def test_changelog_06x_07x_entries_present():
+    """CHANGELOG has 0.6.0 and 0.7.0 entries with substantive content.
+    Replaces the M1-M5 sub-header check (those headers were removed in
+    the 0.7.0 changelog rewrite per user directive)."""
     changelog = (_REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    assert "0.6.0" in changelog, "CHANGELOG must have a 0.6.0 entry"
+    assert "## [0.6.0]" in changelog, "CHANGELOG must have a 0.6.0 entry"
+    assert "## [0.7.0]" in changelog, "CHANGELOG must have a 0.7.0 entry"
 
-    sections = changelog.split("## [0.6.0]", 1)
-    assert len(sections) == 2
-    body = sections[1].split("\n## ", 1)[0]
-    for milestone in ("M1", "M2", "M3a", "M3b", "M4", "M5"):
-        assert f"### {milestone}" in body, (
-            f"0.6.0 section must have '### {milestone}' entry"
+    # Each release section should have at least an Added or Fixed group
+    for version in ("0.6.0", "0.7.0"):
+        section = changelog.split(f"## [{version}]", 1)[1]
+        body = section.split("\n## ", 1)[0]
+        has_group = any(h in body for h in ("### Added", "### Fixed", "### Changed", "### Removed"))
+        assert has_group, (
+            f"{version} section must have at least one ### group "
+            f"(Added/Fixed/Changed/Removed)"
         )
 
 

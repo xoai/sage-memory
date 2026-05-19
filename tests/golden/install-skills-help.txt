@@ -1,0 +1,22 @@
+usage: sage-memory install-skills [-h] [--project | --global]
+                                  [--skill {memory,ontology,self-learning}]
+                                  [--dry-run] [-y]
+                                  [{claude-code,codex,gemini,cursor,opencode,all} ...]
+
+Install sage-memory's built-in skills into an AI coding agent. Targets:
+claude-code, codex, gemini, cursor, opencode (or 'all').
+
+positional arguments:
+  {claude-code,codex,gemini,cursor,opencode,all}
+                        agent(s) to install for; use 'all' to install for
+                        every supported agent
+
+options:
+  -h, --help            show this help message and exit
+  --project             install to the current working directory
+  --global              install to the user's home-level config
+  --skill {memory,ontology,self-learning}
+                        install only this skill (repeatable; default: all
+                        three)
+  --dry-run             show what would change, write nothing
+  -y, --yes             auto-overwrite on conflicts (required for non-TTY use)

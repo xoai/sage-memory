@@ -111,3 +111,61 @@ def bm25_probe():
     """
     from fixtures.expand_corpus import bm25_probe as _probe
     return _probe
+
+
+# ── install-skills E2E fixtures (Task 8a) ─────────────────────────
+
+
+@pytest.fixture
+def tmp_install_root(tmp_path, monkeypatch):
+    """Isolated home + cwd for install-skills end-to-end tests.
+
+    Sets HOME and XDG_CONFIG_HOME to tmp_path subdirs so `--global`
+    targets land in the tmp tree (never in the user's real config).
+    Cwd is set to a `project/` subdir for `--project` tests.
+
+    Returns an object with `.home`, `.xdg`, and `.project` attributes.
+    """
+    home = tmp_path / "home"
+    home.mkdir()
+    xdg = tmp_path / "xdg"
+    xdg.mkdir()
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
+    monkeypatch.chdir(project)
+
+    class _Root:
+        def __init__(self):
+            self.home = home
+            self.xdg = xdg
+            self.project = project
+
+    return _Root()
+
+
+@pytest.fixture
+def mock_stdin_decisions(monkeypatch):
+    """Feed scripted Decision values to the conflict prompt.
+
+    Usage:
+        def test_x(mock_stdin_decisions, ...):
+            mock_stdin_decisions(["o", "k", "s"])
+            # next 3 prompts return OVERWRITE, KEEP, SKIP
+    """
+    def _factory(decisions):
+        from sage_memory.install_skills import prompt
+        it = iter(decisions)
+
+        def _fake_prompt(*a, **kw):
+            ch = next(it)
+            return {
+                "o": prompt.Decision.OVERWRITE,
+                "k": prompt.Decision.KEEP,
+                "s": prompt.Decision.SKIP,
+            }[ch]
+
+        monkeypatch.setattr(prompt, "prompt_conflict", _fake_prompt)
+
+    return _factory

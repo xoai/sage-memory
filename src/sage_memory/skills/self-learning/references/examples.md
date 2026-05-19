@@ -280,12 +280,13 @@ The ontology skill is active. A project has tasks tracked as entities.
 **Task entity exists:**
 ```
 [Task:task_a1b2] Fix payment timeout in checkout flow
+  memory_id: mem_payment_timeout
 ```
 
 **Agent works on the task and discovers a gotcha.** The N+1 query in
 ReportBuilder causes the timeout.
 
-**Capture with ontology link:**
+**Step 1 — Store the learning:**
 ```
 sage_memory_store:
   title: "[LRN:gotcha] ReportBuilder N+1 query causes payment timeout"
@@ -300,19 +301,40 @@ sage_memory_store:
     check if it loads related objects. If yes, use prefetch_related()
     or select_related() to batch-load. Test with >100 records to
     catch N+1 patterns early.
-  tags: ["self-learning", "gotcha", "database", "performance",
-         "n-plus-one", "edge:task_a1b2"]
+  tags: ["self-learning", "gotcha", "database", "performance", "n-plus-one"]
   scope: "project"
+  → returns memory_id: mem_n_plus_one
 ```
 
-The `edge:task_a1b2` tag links this learning to the ontology task. Now:
-
-**Any future work on task_a1b2 automatically surfaces this learning:**
+**Step 2 — Link to the task entity via `sage_memory_link`:**
 ```
-sage_memory_search: filter_tags=["self-learning", "edge:task_a1b2"]
-→ Found: [LRN:gotcha] ReportBuilder N+1 query causes payment timeout
+sage_memory_link:
+  source_id: "mem_n_plus_one"
+  target_id: "mem_payment_timeout"
+  relation:  "applies_to"
 ```
 
-**During review, the ontology connection provides context:** "This
-learning is linked to task 'Fix payment timeout' which is now status:done.
-Is the learning still relevant, or was it resolved with the task?"
+This creates a real graph edge between the learning and the task —
+not a tag-based pseudo-edge. The graph traversal then works
+symmetrically from either side.
+
+**Step 3 — Future recall via graph, not tag search:**
+
+Any future agent picking up task_a1b2 can find linked learnings:
+```
+sage_memory_graph:
+  id: "mem_payment_timeout"
+  relation: "applies_to"
+  direction: "inbound"
+  depth: 1
+→ Returns: mem_n_plus_one (+ any other learnings linked to this task)
+```
+
+**During review**, the same graph query surfaces the link: "This
+learning is linked to task 'Fix payment timeout' (status: done). Is
+the learning still relevant, or was it resolved with the task?"
+
+**Why this replaces the older `edge:<id>` tag pattern:** graph edges
+are first-class in sage-memory (the `edges` table) and CASCADE on
+endpoint deletion. Tag-based pseudo-edges required manual cleanup
+and weren't visible to `sage_memory_graph`. Use the link tool.

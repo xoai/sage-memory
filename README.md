@@ -217,6 +217,23 @@ Closed-loop mistake detection. Five types: gotcha, correction, convention, api-d
 
 Learnings link to ontology entities, enabling graph-based targeted recall: "show me all past mistakes connected to this task."
 
+### Installing skills into your agent
+
+The three skills ship inside the wheel. Install them into your AI agent of choice:
+
+```bash
+# Claude Code (this project only)
+sage-memory install-skills claude-code --project
+
+# Cursor (user-wide, all projects)
+sage-memory install-skills cursor --global
+
+# Every supported agent at once
+sage-memory install-skills all --project
+```
+
+**Supported agents:** Claude Code, Cursor, Codex CLI, Gemini CLI, OpenCode. Each gets its native skill format — directory of `SKILL.md` files for Claude Code, `.mdc` rules for Cursor, marker-delimited blocks in `AGENTS.md` / `GEMINI.md` for the others. Re-installs are idempotent; modified files trigger a diff prompt. Use `--dry-run` to preview, `-y` to auto-overwrite (required in non-TTY environments like CI).
+
 ## Use Cases
 
 **Coding assistants** — learn your codebase, conventions, and past debugging insights. Build architecture graphs during code exploration. Avoid repeating the same mistakes across sessions. *This is where sage-memory has the deepest benchmarks and proven skills.*

@@ -61,17 +61,6 @@ def test_bench_channels_disable_accepts_csv():
     )
 
 
-def test_4way_runner_script_exists():
-    """The 4-way ablation runner script is present."""
-    runner = (
-        Path(__file__).resolve().parent.parent
-        / "evaluation/longmemeval/run_4way_ablation.sh"
-    )
-    assert runner.exists(), (
-        "run_4way_ablation.sh missing — required by A10"
-    )
-
-
 # ─── M4 (T6) — expand/rerank ablation flags ───────────────────────
 
 

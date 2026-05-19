@@ -1,6 +1,6 @@
 [project]
 name = "sage-memory"
-version = "0.7.0"
+version = "0.8.0"
 description = "Ultrafast local MCP memory for LLMs — project-aware, zero-config"
 readme = "README.md"
 license = { text = "MIT" }
@@ -25,3 +25,8 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sage_memory"]
+
+[tool.pytest.ini_options]
+markers = [
+    "build: tests that invoke `uv build` (slower; run with full suite)",
+]

@@ -2,6 +2,63 @@
 
 All notable changes to sage-memory will be documented in this file.
 
+## [0.8.0] — 2026-05-19
+
+`sage-memory install-skills` ships — one-command installation of the
+three bundled skills into AI coding agents. Replaces the manual
+"copy from the repo" UX with a small CLI that supports five targets
+out of the box.
+
+### Added
+
+- **`sage-memory install-skills <agent>... [--project | --global]`** —
+  installs sage-memory's three skills (memory, ontology, self-learning)
+  into the conventional config location of the target agent. Supported
+  agents:
+  - `claude-code` — `~/.claude/skills/` or `.claude/skills/`
+  - `cursor`      — `.cursor/rules/sage-*.mdc`
+  - `codex`       — `~/.codex/AGENTS.md` or `./AGENTS.md`
+  - `gemini`      — `~/.gemini/GEMINI.md` or `./GEMINI.md`
+  - `opencode`    — `~/.config/opencode/AGENTS.md` or `./AGENTS.md`
+  - `all`         — install for every supported agent in one command
+- **Flags:** `--project | --global` (one required; no default),
+  `--skill <name>` (repeatable filter), `--dry-run`, `-y/--yes`
+  (auto-overwrite, required for non-TTY use).
+- **Marker-delimited blocks** for AGENTS.md / GEMINI.md style targets,
+  so re-installs replace exactly the prior block without disturbing
+  user content. Version metadata lives *inside* the block, excluded
+  from byte-equality so version bumps with identical skill bodies are
+  idempotent.
+- **Conflict resolution:** unified-diff prompt per file (or per block)
+  with `[o]verwrite / [k]eep / [s]kip`. `--yes` skips prompts; non-TTY
+  stdin without `--yes` preserves local content via the prompt's
+  EOFError → KEEP fallback.
+- **Bundled resources footer** for AGENTS.md-style targets — rewrites
+  relative `references/*` references in the skill body to absolute
+  paths under the bundled wheel location, plus a footer listing every
+  reference file's absolute path so tools that don't follow markdown
+  links still have pointers.
+
+### Changed
+
+- **`skills/` moved from repo root to `src/sage_memory/skills/`** so
+  the skill files ship inside the wheel (`pip install sage-memory`
+  now bundles them). `importlib.resources.files("sage_memory") /
+  "skills"` resolves to the bundled location at runtime.
+- **Path-change callout for 0.7.x users:** if your tooling or docs
+  reference `github.com/.../blob/main/skills/...` URLs, update them to
+  `github.com/.../blob/main/src/sage_memory/skills/...`. The old paths
+  return 404 from 0.8.0 onward.
+
+### Upgrade notes (0.7.x → 0.8.0)
+
+- Existing installations are unaffected at runtime — the change is
+  purely about where the skill files live in the repo and wheel. No
+  database migrations, no MCP API changes.
+- To use the new CLI: `sage-memory install-skills <agent> --project`
+  (or `--global`). Run with `--dry-run` first if you have existing
+  skill files at the target paths.
+
 ## [0.7.0] — 2026-05-19
 
 Bug fix + benchmark release. The embedder resolver shipped in 0.6.0

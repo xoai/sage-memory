@@ -26,8 +26,8 @@ filesystem fallback (reduced but functional).
 | Update existing | ✅ `sage_memory_update` | ✅ edit file |
 | Delete | ✅ `sage_memory_delete` | ✅ delete file |
 | Browse / list | ✅ `sage_memory_list` with tag filter | ✅ directory listing |
-| Link related memories | ✅ `sage_memory_link` | ❌ skip |
-| Graph traversal | ✅ `sage_memory_graph` | ❌ skip |
+| Link related memories | ✅ `sage_memory_link` | ⚠️ `relations:` frontmatter (see ontology skill) |
+| Multi-hop graph traversal | ✅ `sage_memory_graph` | ❌ single-hop scan only |
 | Tag filtering | ✅ `filter_tags` | ⚠️ frontmatter scan |
 | Deduplication | ✅ SHA-256 automatic | ⚠️ manual (check filenames) |
 
