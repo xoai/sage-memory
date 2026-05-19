@@ -51,9 +51,14 @@ def test_changelog_has_080_entry():
     )
 
 
-def test_pyproject_version_is_080():
+def test_pyproject_version_pinned_in_release_cycle():
+    """pyproject.toml carries SOME version. The exact version is
+    asserted by the active release cycle's own acceptance test
+    (e.g., test_agent_extraction_release.py for 0.9.0); this check
+    is just a smoke that the file isn't broken."""
     text = (REPO / "pyproject.toml").read_text()
-    assert 'version = "0.8.0"' in text
+    import re
+    assert re.search(r'version = "\d+\.\d+\.\d+"', text)
 
 
 def test_readme_has_install_skills_section():

@@ -38,12 +38,22 @@ def _embedder_meets_threshold(embedder) -> bool:
     return embedder.quality >= _EMBED_QUALITY_THRESHOLD
 
 
-def _enqueue_extract(db, memory_id: str, content: str, now: float) -> None:
+def _enqueue_extract(
+    db, memory_id: str, content: str, now: float,
+    *, force_skip: bool = False,
+) -> None:
     """M3a (T5): enqueue an `extract` task for the worker if an LLM
     key is configured AND content length exceeds the per-spec floor
     (50 chars). Free-path floor: no LLM key → no enqueue, behavior
     matches M2.
+
+    `force_skip=True` (0.9.0): short-circuit the enqueue even when an
+    LLM key is set. Used by the agent-driven extraction path where the
+    caller has provided entities/relations inline — no point asking
+    the worker to re-extract.
     """
+    if force_skip:
+        return
     if not _llm.is_configured() or len(content) <= 50:
         return
     db.execute(
@@ -75,11 +85,37 @@ def _enqueue_reembed(db, memory_id: str, now: float) -> None:
 
 
 def store(*, content: str, title: str | None = None,
-          tags: list[str] | None = None, scope: str = "project") -> dict:
-    """Store a memory. Returns {success, id, message}."""
+          tags: list[str] | None = None, scope: str = "project",
+          entities: list[dict] | None = None,
+          relations: list[dict] | None = None) -> dict:
+    """Store a memory. Returns {success, id, message}.
+
+    `entities` and `relations` (0.9.0+): agent-provided extraction
+    payload. When passed (even as empty list), the synchronous agent
+    path runs and the background worker is skipped for this memory.
+    When `entities is None`, the worker extracts later if an LLM key
+    is configured (backwards-compat).
+    """
     content = _normalize(content)
     if len(content) < 10:
         return {"success": False, "id": "", "message": "Content too short (min 10 chars)."}
+
+    # 0.9.0: validate agent-provided extraction payload before any
+    # writes. Validation errors reject the whole call (no memory row
+    # written) so the agent sees the problem and can correct it.
+    if entities is not None or relations is not None:
+        from . import extractor as _extractor
+        cleaned_entities, cleaned_relations, payload_errors = (
+            _extractor.validate_agent_payload(entities, relations)
+        )
+        if payload_errors:
+            return {
+                "success": False, "id": "",
+                "message": "Invalid entities/relations payload: "
+                           + "; ".join(payload_errors),
+            }
+    else:
+        cleaned_entities, cleaned_relations = [], []
 
     db = get_db(scope)
     now = time.time()
@@ -107,21 +143,70 @@ def store(*, content: str, title: str | None = None,
     db.commit()
 
     # Phase 2: embed memory-level vec (synchronous, M1 path).
-    # Chunk-level embedding moves async to the worker (M3a / T5).
     _try_embed(db, memory_id, title, content)
 
-    # Phase 3: chunk if long (M2). Chunker is a no-op for short content.
-    # Returns chunk count; the inline _try_embed_chunk loop was removed
-    # in T5 — chunks_vec writes happen via the worker's reembed task.
+    # Phase 3: chunk if long (M2).
     n_chunks = _chunk_and_embed(db, memory_id, content, now)
 
-    # Phase 4: enqueue worker tasks (M3a / T5).
-    _enqueue_extract(db, memory_id, content, now)
+    # Phase 4a (0.9.0+): agent-provided extraction — write inline.
+    agent_path_active = (entities is not None or relations is not None)
+    if agent_path_active and (cleaned_entities or cleaned_relations):
+        from . import extraction_write
+        extraction_write.write_extraction(
+            db, memory_id, content,
+            cleaned_entities, cleaned_relations, now,
+        )
+
+    # Phase 4b: enqueue worker tasks (M3a / T5). Suppressed when the
+    # agent has provided entities/relations (including empty list).
+    _enqueue_extract(
+        db, memory_id, content, now,
+        force_skip=agent_path_active,
+    )
     if n_chunks > 0:
         _enqueue_reembed(db, memory_id, now)
     db.commit()
 
-    return {"success": True, "id": memory_id, "message": "Stored."}
+    # 0.9.0: suggest existing memories the agent may want to link to.
+    # Fast FTS5 path (~4ms p95 on 1K corpus); never fails the store.
+    # Exclude the just-stored memory so the agent doesn't see itself.
+    suggestions = _safe_suggest(db, content, exclude_id=memory_id)
+
+    return {
+        "success": True, "id": memory_id, "message": "Stored.",
+        "suggested_links": suggestions,
+    }
+
+
+def _safe_suggest(db, content: str, *, exclude_id: str | None = None) -> list[dict]:
+    """Wrap `suggested_links.find_suggested_links` so a lookup failure
+    never breaks the store/update path.
+
+    Splits failure modes into two tiers:
+      - sqlite3.Error: expected when the FTS5 vocab table is missing
+        on a fresh DB, or under DB-level edge cases. Logged at DEBUG
+        and swallowed — the store/update operation succeeds with an
+        empty suggestion list.
+      - Other Exception: indicates a bug in our code (typo, NameError,
+        etc.). Logged at WARNING with exc_info so the operator sees
+        it in production logs; still swallowed to honor the contract
+        that suggested_links never fails the parent operation.
+    """
+    import logging
+    import sqlite3 as _sqlite3
+    _logger = logging.getLogger("sage_memory.store")
+    try:
+        from . import suggested_links as _sl
+        return _sl.find_suggested_links(db, content, exclude_id=exclude_id)
+    except _sqlite3.Error:
+        _logger.debug("suggested_links: sqlite error", exc_info=True)
+        return []
+    except Exception:
+        _logger.warning(
+            "suggested_links: unexpected error — please report",
+            exc_info=True,
+        )
+        return []
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -131,8 +216,34 @@ def store(*, content: str, title: str | None = None,
 
 def update(*, id: str, content: str | None = None, title: str | None = None,
            tags: list[str] | None = None, status: str | None = None,
-           scope: str = "project") -> dict:
-    """Partial update by ID. Content changes trigger re-embedding."""
+           scope: str = "project",
+           entities: list[dict] | None = None,
+           relations: list[dict] | None = None) -> dict:
+    """Partial update by ID. Content changes trigger re-embedding.
+
+    `entities` and `relations` (0.9.0+): agent-provided extraction
+    payload. When passed (including as empty list), REPLACE all
+    mentions and source-relations for this `memory_id` regardless of
+    whether they came from the worker or a prior agent call. When
+    `entities is None`, mentions/relations are untouched (today's
+    behavior); the worker may re-extract on content change.
+    """
+    # 0.9.0: validate agent-provided extraction payload before any DB writes.
+    if entities is not None or relations is not None:
+        from . import extractor as _extractor
+        cleaned_entities, cleaned_relations, payload_errors = (
+            _extractor.validate_agent_payload(entities, relations)
+        )
+        if payload_errors:
+            return {
+                "success": False,
+                "message": "Invalid entities/relations payload: "
+                           + "; ".join(payload_errors),
+            }
+    else:
+        cleaned_entities, cleaned_relations = [], []
+    agent_path_active = (entities is not None or relations is not None)
+
     db = get_db(scope)
     row = db.execute("SELECT * FROM memories WHERE id = ?", (id,)).fetchone()
     if not row:
@@ -173,22 +284,41 @@ def update(*, id: str, content: str | None = None, title: str | None = None,
         _try_embed(db, id, new_title, new_content)
 
     # M2 hysteresis: chunk/unchunk/re-chunk based on new content length.
-    # Returns chunk-action indicator so M3a can enqueue accordingly.
     chunked_after = False
     if content is not None:
         chunked_after = _update_chunks_hysteresis(
             db, id, new_content, now,
         )
 
+    # 0.9.0: agent-driven extraction REPLACE semantics.
+    # When `entities` is passed (including []), DELETE all existing
+    # mentions + source-relations for this memory, then INSERT the
+    # cleaned set. Worker is NOT enqueued in this case.
+    if agent_path_active:
+        db.execute("DELETE FROM mentions WHERE memory_id = ?", (id,))
+        db.execute("DELETE FROM relations WHERE source_memory_id = ?", (id,))
+        if cleaned_entities or cleaned_relations:
+            from . import extraction_write
+            extraction_write.write_extraction(
+                db, id, new_content,
+                cleaned_entities, cleaned_relations, now,
+            )
+
     # M3a (T5): enqueue worker tasks on content change.
     if content is not None:
-        _enqueue_extract(db, id, new_content, now)
+        _enqueue_extract(
+            db, id, new_content, now,
+            force_skip=agent_path_active,
+        )
         if chunked_after:
             _enqueue_reembed(db, id, now)
 
     db.commit()
 
-    result = {"success": True, "id": id, "message": "Updated."}
+    result = {
+        "success": True, "id": id, "message": "Updated.",
+        "suggested_links": _safe_suggest(db, new_content, exclude_id=id),
+    }
     if status is not None:
         result["status"] = new_status
     return result

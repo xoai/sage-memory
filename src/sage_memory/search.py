@@ -449,15 +449,18 @@ def search(*, query: str, scope: str = "project",
 def _resolve_llm_stage_enabled(
     stage_name: str, param_value: bool | None,
 ) -> bool:
-    """A9 three-state matrix for expand / rerank MCP params.
+    """Three-state matrix for expand / rerank MCP params (0.9.0).
 
-    - param is None: enabled iff llm.is_configured() — default.
+    - param is None: disabled (explicit False is the 0.9.0 default).
+      Brings live behavior into parity with the 0.8.0 published bench
+      numbers (0.972/0.986 R@5 captured with both stages off). Users
+      who want LLM expand/rerank: pass `expand=True` / `rerank=True`.
     - param is True: force enable. If LLM unconfigured, WARN and
       return False (caller skips). The WARN surfaces the contract
-      violation explicitly (consistent with failure_visibility=warn).
+      violation explicitly.
     - param is False: force disable. Skip silently.
     """
-    if param_value is False:
+    if param_value is False or param_value is None:
         return False
     configured = llm.is_configured()
     if param_value is True and not configured:
@@ -466,10 +469,7 @@ def _resolve_llm_stage_enabled(
             "skipping", stage_name,
         )
         return False
-    if param_value is True:
-        return True
-    # param is None
-    return configured
+    return True
 
 
 def _seed_bm25_probe(

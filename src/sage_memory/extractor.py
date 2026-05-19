@@ -37,6 +37,14 @@ RELATION_TYPES = frozenset({
 _MAX_NAME_LEN = 200
 _MAX_RELATIONS = 15
 
+# Agent-payload caps (0.9.0). Justification:
+# - 50 entities ≈ _MAX_RELATIONS × 3.3 headroom; covers long stored
+#   memories without inviting agent buffer abuse.
+# - 100 relations ≈ entity² density cap; bounds a single store() to
+#   ~150 row INSERTs/UPSERTs.
+_AGENT_MAX_ENTITIES = 50
+_AGENT_MAX_RELATIONS = 100
+
 
 # ─── Errors ───────────────────────────────────────────────────────
 
@@ -77,6 +85,102 @@ def extract(content: str, *, max_entities: int = 10) -> dict:
     raise ExtractionFailedError(
         f"extraction failed after 2 attempts: {last_error}"
     )
+
+
+def validate_agent_payload(
+    entities, relations,
+) -> tuple[list[dict], list[dict], list[str]]:
+    """Validate the agent-provided entities + relations payload.
+
+    Renames JSON wire fields (`from`/`to`/`rel`) to the worker-shape
+    (`source_name`/`target_name`/`type`) consumed by
+    `extraction_write.write_extraction`. Returns three lists:
+
+      (cleaned_entities, cleaned_relations, error_messages)
+
+    `None` or `[]` inputs are valid → empty lists, no errors.
+    Each invalid item is dropped from the cleaned output and a
+    descriptive error is appended to the error list. The caller
+    decides whether non-empty errors should reject the whole call.
+    """
+    errors: list[str] = []
+    cleaned_entities: list[dict] = []
+    cleaned_relations: list[dict] = []
+
+    if entities is None:
+        entities = []
+    if relations is None:
+        relations = []
+
+    if len(entities) > _AGENT_MAX_ENTITIES:
+        errors.append(
+            f"entities: {len(entities)} exceeds cap of "
+            f"{_AGENT_MAX_ENTITIES}"
+        )
+        return [], [], errors
+
+    if len(relations) > _AGENT_MAX_RELATIONS:
+        errors.append(
+            f"relations: {len(relations)} exceeds cap of "
+            f"{_AGENT_MAX_RELATIONS}"
+        )
+        return [], [], errors
+
+    for i, ent in enumerate(entities):
+        if not isinstance(ent, dict):
+            errors.append(f"entities[{i}]: must be a dict, got {type(ent).__name__}")
+            continue
+        name = ent.get("name")
+        etype = ent.get("type")
+        if not isinstance(name, str) or not name.strip():
+            errors.append(f"entities[{i}].name: must be a non-empty string")
+            continue
+        if len(name) > _MAX_NAME_LEN:
+            errors.append(
+                f"entities[{i}].name: {len(name)} chars exceeds "
+                f"cap of {_MAX_NAME_LEN}"
+            )
+            continue
+        if not isinstance(etype, str) or etype not in ENTITY_TYPES:
+            errors.append(
+                f"entities[{i}].type: {etype!r} not in vocab "
+                f"({sorted(ENTITY_TYPES)})"
+            )
+            continue
+        cleaned = {"name": name, "type": etype}
+        surface = ent.get("surface_form")
+        if isinstance(surface, str) and surface:
+            cleaned["surface_form"] = surface
+        cleaned_entities.append(cleaned)
+
+    for i, rel in enumerate(relations):
+        if not isinstance(rel, dict):
+            errors.append(
+                f"relations[{i}]: must be a dict, got {type(rel).__name__}"
+            )
+            continue
+        src = rel.get("from")
+        tgt = rel.get("to")
+        rtype = rel.get("rel")
+        if not isinstance(src, str) or not src.strip():
+            errors.append(f"relations[{i}].from: must be a non-empty string")
+            continue
+        if not isinstance(tgt, str) or not tgt.strip():
+            errors.append(f"relations[{i}].to: must be a non-empty string")
+            continue
+        if not isinstance(rtype, str) or rtype not in RELATION_TYPES:
+            errors.append(
+                f"relations[{i}].rel: {rtype!r} not in vocab "
+                f"({sorted(RELATION_TYPES)})"
+            )
+            continue
+        cleaned_relations.append({
+            "source_name": src,
+            "target_name": tgt,
+            "type": rtype,
+        })
+
+    return cleaned_entities, cleaned_relations, errors
 
 
 def normalize_name(name: str) -> str:

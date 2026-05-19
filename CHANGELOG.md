@@ -2,6 +2,85 @@
 
 All notable changes to sage-memory will be documented in this file.
 
+## [0.9.0] — 2026-05-19
+
+Agent-driven extraction. The calling agent (Claude Code, Cursor,
+Codex, Gemini, OpenCode) now provides entity/relation structure
+inline as part of `sage_memory_store`, instead of sage-memory's
+background worker re-deriving it via its own LLM call. Users without
+an LLM API key configured for sage-memory get the full knowledge
+graph because their agent IS the LLM.
+
+### Added
+
+- **`entities` and `relations` params on `sage_memory_store` and
+  `sage_memory_update`.** Optional arrays of
+  `{"name", "type", "surface_form"?}` and
+  `{"from", "to", "rel"}`. Entity types: `PERSON, CONCEPT,
+  TECHNOLOGY, PROJECT, EVENT, OTHER`. Relation types: `mentions,
+  relates_to, contains, depends_on, contradicts, derived_from,
+  implements, references, supersedes, alternative_to`. Defensive
+  caps: 50 entities, 100 relations per call. Validation errors
+  reject the whole call (no partial writes).
+- **`suggested_links` response field** on store/update. Up to 3
+  candidate link targets surfaced via direct FTS5 query against
+  the project DB (`status='active'`). Agents can follow up with
+  `sage_memory_link` to formalize the connection. Adds ≤ 5ms p95
+  to store on a 1K-memory corpus.
+- **`extraction_write.write_extraction()`** — shared helper used by
+  both the agent-driven path and the background worker. Guarantees
+  byte-equivalent row inserts regardless of which path ran.
+- **`extractor.validate_agent_payload()`** — shape + vocab + size
+  validation for agent-provided payloads, with explicit rename of
+  the JSON wire fields (`from`/`to`/`rel`) to the worker-shape
+  consumed by `write_extraction`.
+
+### Changed
+
+- **`sage_memory_search` defaults for `expand` and `rerank` flip from
+  resolves-to-`llm.is_configured()` to explicit `false`.** Brings live
+  behavior into parity with the 0.8.0 published bench numbers
+  (free-path R@5 = 0.972; hosted R@5 = 0.986; both captured with the
+  stages off). To re-enable: pass `expand=true` / `rerank=true`
+  explicitly in your search call. Old clients that never passed these
+  params will see the new default automatically.
+- **Bundled skills updated** with an "Extract Before Store" section
+  in `memory`, an "Agent-driven extraction" callout in `ontology`,
+  and an entity-aware Prevention pattern in `self-learning`. Each
+  shows the new `entities`/`relations` invocation shape.
+
+### Deprecated
+
+- **Background extraction worker path.** Still functional in 0.9.0 as
+  a fallback (runs only when an LLM API key is configured AND the
+  agent did not pass `entities`/`relations`). Will be **removed in
+  1.0.0**. Migration: pass `entities` and `relations` from the agent
+  side. The bundled skills demonstrate the pattern.
+- Workers emit a one-time INFO log at startup describing the
+  deprecation; visible via `cli_worker --status` will NOT trigger it
+  (status inspection doesn't enter the run loop).
+
+### Upgrade notes (0.8.0 → 0.9.0)
+
+- **No breaking changes on the wire.** `sage_memory_store` and
+  `sage_memory_update` remain additive — the new params are optional;
+  callers that don't pass `entities` still get the worker path if a
+  key is set.
+- **Re-install bundled skills** to pick up the new `Extract Before
+  Store` instructions for your agent:
+  ```bash
+  sage-memory install-skills <agent> --project   # or --global
+  ```
+  `pip install -U` does NOT refresh installed skills — they live in
+  user-controlled agent config directories.
+- **Search behavior changes for any caller that omitted `expand=`
+  / `rerank=` kwargs.** Previously `None` resolved to "on with key,
+  off without"; in 0.9.0 `None` is always off. Pass `=true`
+  explicitly to opt in.
+- **`suggested_links` field appears on every store/update response.**
+  MCP clients tolerate unknown JSON fields per spec; old clients
+  ignore it harmlessly.
+
 ## [0.8.0] — 2026-05-19
 
 `sage-memory install-skills` ships — one-command installation of the

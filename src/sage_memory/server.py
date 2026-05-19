@@ -73,7 +73,11 @@ TOOLS = [
             "detailed content explaining the 'what' and 'why'. "
             "Good content is specific, uses domain vocabulary, and would "
             "help someone (or you, later) understand the topic without "
-            "reading the source code."
+            "reading the source code. "
+            "0.9+: pass optional `entities` and `relations` to populate "
+            "the knowledge graph inline (no LLM API key needed for "
+            "sage-memory). Response includes `suggested_links` listing "
+            "existing memories whose content overlaps."
         ),
         inputSchema={
             "type": "object",
@@ -104,6 +108,52 @@ TOOLS = [
                     "description": (
                         "'project' (default) for this codebase's knowledge, "
                         "'global' for cross-project patterns and preferences."
+                    ),
+                },
+                "entities": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "type": {
+                                "type": "string",
+                                "enum": ["PERSON", "CONCEPT", "TECHNOLOGY",
+                                         "PROJECT", "EVENT", "OTHER"],
+                            },
+                            "surface_form": {"type": "string"},
+                        },
+                        "required": ["name", "type"],
+                    },
+                    "description": (
+                        "Entities mentioned in the content (0.9+). Populates "
+                        "the knowledge graph without sage-memory needing its "
+                        "own LLM key. Max 50 entries per call."
+                    ),
+                },
+                "relations": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "from": {"type": "string"},
+                            "to": {"type": "string"},
+                            "rel": {
+                                "type": "string",
+                                "enum": ["mentions", "relates_to", "contains",
+                                         "depends_on", "contradicts",
+                                         "derived_from", "implements",
+                                         "references", "supersedes",
+                                         "alternative_to"],
+                            },
+                        },
+                        "required": ["from", "to", "rel"],
+                    },
+                    "description": (
+                        "Relations between entities (0.9+). `from`/`to` are "
+                        "entity names matched against entities passed in this "
+                        "call AND existing entities in the DB. Unresolvable "
+                        "endpoints are silently dropped. Max 100 entries."
                     ),
                 },
             },
@@ -170,16 +220,20 @@ TOOLS = [
                 },
                 "expand": {
                     "type": "boolean",
+                    "default": False,
                     "description": (
-                        "Reserved for query expansion (M4). Accepted "
-                        "in M3b but has no effect."
+                        "Enable LLM query expansion. Default: false "
+                        "(matches published 0.8.0 bench config). Pass "
+                        "true to enable; requires LLM API key."
                     ),
                 },
                 "rerank": {
                     "type": "boolean",
+                    "default": False,
                     "description": (
-                        "Reserved for LLM rerank (M4). Accepted in "
-                        "M3b but has no effect."
+                        "Enable LLM rerank of top-K results. Default: "
+                        "false (matches published 0.8.0 bench config). "
+                        "Pass true to enable; requires LLM API key."
                     ),
                 },
             },
@@ -191,7 +245,10 @@ TOOLS = [
         description=(
             "Update existing knowledge by ID. Use when understanding deepens, "
             "code changes, or stored information becomes outdated. "
-            "Only provide fields you want to change."
+            "Only provide fields you want to change. "
+            "0.9+: passing `entities` (including `[]`) REPLACEs all mentions "
+            "and source-relations for this memory; omit to leave the graph "
+            "rows untouched. Response includes `suggested_links`."
         ),
         inputSchema={
             "type": "object",
@@ -210,6 +267,24 @@ TOOLS = [
                 "scope": {
                     "type": "string", "enum": ["project", "global"],
                     "description": "Which database contains this memory.",
+                },
+                "entities": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": (
+                        "Agent-provided entities for this memory (0.9+). When "
+                        "passed (including `[]`), REPLACEs prior mentions and "
+                        "source-relations regardless of origin. Same shape as "
+                        "sage_memory_store."
+                    ),
+                },
+                "relations": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": (
+                        "Agent-provided relations (0.9+). Same shape as "
+                        "sage_memory_store."
+                    ),
                 },
             },
             "required": ["id"],

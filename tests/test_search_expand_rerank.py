@@ -96,10 +96,18 @@ def search_corpus_db(tmp_path, monkeypatch):
 # ─── A9: expand 3-state matrix ────────────────────────────────────
 
 
-def test_search_expand_none_enabled_when_llm_configured(
+def test_search_expand_none_is_disabled_in_0_9_0(
     monkeypatch, search_corpus_db,
 ):
-    """A9 default: expand=None + LLM configured → expand IS called."""
+    """0.9.0 flip: expand=None resolves to False (NOT to
+    `llm.is_configured()` as in 0.8.x). Even with an LLM key
+    configured, the expand stage stays off unless the caller opts in
+    with `expand=True`.
+
+    Previously this test asserted `called in ([], ["quintarius
+    ozymandias"])` — a permissive assertion that passed under EITHER
+    semantics. Tightened to the exact 0.9.0 contract.
+    """
     from sage_memory import search
 
     called = []
@@ -114,7 +122,6 @@ def test_search_expand_none_enabled_when_llm_configured(
     monkeypatch.setattr(
         "sage_memory.llm.is_configured", lambda: True,
     )
-    # rerank: default off-key so we can isolate expand behavior.
     monkeypatch.setattr(
         "sage_memory.llm.rerank_candidates",
         lambda *a, **kw: pytest.fail("rerank should not run here"),
@@ -125,11 +132,10 @@ def test_search_expand_none_enabled_when_llm_configured(
         strategy="keyword", expand=None, rerank=False,
     )
 
-    # The strong-signal short-circuit may or may not fire; either way
-    # the expand decision was made under "enabled" gates.
-    # We only assert: the gate didn't short out the whole feature.
-    # If short-circuit fires, called == []. If not, called == [query].
-    assert called in ([], ["quintarius ozymandias"])
+    assert called == [], (
+        "0.9.0 default flip: expand=None must NOT call the LLM "
+        "expand stage even when llm.is_configured() is True"
+    )
 
 
 def test_search_expand_true_warns_when_no_key(
@@ -227,7 +233,8 @@ def test_search_rerank_3state_matrix(monkeypatch, search_corpus_db, caplog):
     )
     # expand disabled to isolate rerank.
 
-    # None + key → enabled
+    # None + key → SKIPPED (0.9.0 flip: default is False, not
+    # llm.is_configured()). Pre-0.9.0 this was the "called" case.
     monkeypatch.setattr(
         "sage_memory.llm.is_configured", lambda: True,
     )
@@ -236,7 +243,17 @@ def test_search_rerank_3state_matrix(monkeypatch, search_corpus_db, caplog):
         query="quintarius",
         strategy="keyword", expand=False, rerank=None,
     )
-    assert len(rerank_call_log) == 1, "rerank=None + key → called"
+    assert rerank_call_log == [], (
+        "rerank=None → skipped (0.9.0 default flip)"
+    )
+
+    # True + key → CALLED (explicit opt-in)
+    rerank_call_log.clear()
+    search.search(
+        query="quintarius",
+        strategy="keyword", expand=False, rerank=True,
+    )
+    assert len(rerank_call_log) == 1, "rerank=True + key → called"
 
     # True + no key → WARN + skip
     monkeypatch.setattr(

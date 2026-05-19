@@ -37,6 +37,23 @@ alongside regular knowledge and self-learning entries during recall.
 with the project root path. If it responds, use MCP. If not, use
 `.sage-memory/` files.
 
+**Agent-driven extraction (0.9+).** Ontology entities are populated
+primarily by passing `entities` and `relations` to `sage_memory_store`
+from the calling agent:
+
+```
+sage_memory_store(
+  content: "...",
+  entities: [{name: "PaymentOrchestrator", type: "CONCEPT"}],
+  relations: [{from: "PaymentOrchestrator", to: "Stripe", rel: "depends_on"}]
+)
+```
+
+The background worker is a fallback that runs only when an LLM API
+key is configured AND the agent didn't pass an extraction payload.
+Prefer the agent-driven path: your model has the full conversational
+context, the worker only sees the stored content.
+
 ## Core Model
 
 **Entities** hold properties. **Relations** connect two entities with a

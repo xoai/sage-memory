@@ -175,6 +175,51 @@ processing. PaymentOrchestrator coordinates between StripeGateway,
 LedgerService, and NotificationService.
 ```
 
+### Extract Before Store (0.9+)
+
+Identify the key entities (technologies, services, modules,
+components, people) in the content and pass them as `entities` so
+they appear in the knowledge graph. sage-memory does NOT auto-extract
+by default — you provide the structure, sage-memory builds the index.
+This works even without an LLM API key set for sage-memory; your own
+agent's LLM is doing the extraction.
+
+```
+sage_memory_store(
+  content: "The billing service uses a saga pattern. PaymentOrchestrator
+            coordinates between StripeGateway, LedgerService, and
+            NotificationService.",
+  title: "Payment saga orchestration via PaymentOrchestrator",
+  tags: ["billing", "saga", "architecture"],
+  entities: [
+    {name: "PaymentOrchestrator", type: "CONCEPT"},
+    {name: "StripeGateway", type: "CONCEPT"},
+    {name: "LedgerService", type: "CONCEPT"},
+    {name: "Stripe", type: "TECHNOLOGY"}
+  ],
+  relations: [
+    {from: "PaymentOrchestrator", to: "StripeGateway", rel: "depends_on"},
+    {from: "PaymentOrchestrator", to: "LedgerService", rel: "depends_on"},
+    {from: "StripeGateway", to: "Stripe", rel: "depends_on"}
+  ],
+  scope: "project"
+)
+```
+
+**Entity types:** PERSON, CONCEPT, TECHNOLOGY, PROJECT, EVENT, OTHER.
+**Relation types:** mentions, relates_to, contains, depends_on,
+contradicts, derived_from, implements, references, supersedes,
+alternative_to.
+
+**Suggested links.** The response includes a `suggested_links` field
+listing existing memories whose content overlaps with what you just
+stored. Use it to call `sage_memory_link` when the connection is
+meaningful — e.g., linking new architecture knowledge to an existing
+ontology Task entity.
+
+**With files:** entities/relations aren't surfaced in file-mode.
+Mention important relationships in the content body instead.
+
 ### Linking Related Memories (MCP only)
 
 When storing memories about connected components, create edges:

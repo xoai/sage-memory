@@ -56,6 +56,30 @@ class _TaskFailed(Exception):
     """Internal: caught at loop level, marks task failed."""
 
 
+# ─── Deprecation log (0.9.0+) ─────────────────────────────────────
+#
+# The background worker extraction path is deprecated as of 0.9.0;
+# 1.0.0 will remove it. Agents should pass `entities`/`relations`
+# directly to `sage_memory_store` instead. We log at INFO once per
+# process so the deprecation is visible to anyone running a worker
+# thread, without spamming the log across reconnects.
+
+_deprecation_logged = False
+
+
+def _log_deprecation_once() -> None:
+    global _deprecation_logged
+    if _deprecation_logged:
+        return
+    logger.info(
+        "background extraction worker enabled — this path is deprecated "
+        "and will be removed in 1.0.0; agents should pass "
+        "`entities`/`relations` directly to sage_memory_store. "
+        "See CHANGELOG for migration guidance."
+    )
+    _deprecation_logged = True
+
+
 # ─── Worker ───────────────────────────────────────────────────────
 
 
@@ -107,6 +131,7 @@ class Worker:
         fresh thread."""
         if self._thread is not None and self._thread.is_alive():
             return
+        _log_deprecation_once()
         self._stop_event = threading.Event()
         self._thread = threading.Thread(
             target=self._run, name="sage-memory-worker", daemon=True,
@@ -332,119 +357,13 @@ class Worker:
         if content_row is None or content_row["content"] is None:
             raise _TaskFailed("memory not found")
         content = content_row["content"]
-
         result = _extractor.extract(content)
-        now = time.time()
-
-        # Upsert entities + write mentions + relations in a single tx.
-        # Each entity is found-or-created via UPSERT on
-        # UNIQUE(name_normalized, type) — the dedup key from migration 004.
-        name_to_id: dict[tuple[str, str], str] = {}
-        for ent in result["entities"]:
-            normalized = _extractor.normalize_name(ent["name"])
-            etype = ent["type"]
-            entity_id = self._upsert_entity(
-                conn, ent["name"], normalized, etype, now,
-            )
-            name_to_id[(normalized, etype)] = entity_id
-            self._insert_mention(
-                conn, memory_id, entity_id,
-                ent.get("surface_form", ent["name"]), content, now,
-            )
-
-        for rel in result["relations"]:
-            src_norm = _extractor.normalize_name(rel["source_name"])
-            tgt_norm = _extractor.normalize_name(rel["target_name"])
-            # Find candidate entity ids by normalized name; pick the
-            # one we wrote in this batch if available, else any
-            # existing entity. If neither exists, skip (relation
-            # without resolved endpoints isn't useful).
-            src_id = self._resolve_entity_id(conn, src_norm, name_to_id)
-            tgt_id = self._resolve_entity_id(conn, tgt_norm, name_to_id)
-            if src_id is None or tgt_id is None:
-                continue
-            self._insert_relation(
-                conn, src_id, tgt_id, rel["type"], memory_id, now,
-            )
-        conn.commit()
-
-    def _upsert_entity(
-        self, conn, name, normalized, etype, now,
-    ) -> str:
-        # Try insert with new uuid; on conflict, increment mention_count
-        # and return the existing id. Using ON CONFLICT lets us avoid
-        # a separate SELECT.
-        new_id = uuid.uuid4().hex
-        cur = conn.execute(
-            "INSERT INTO entities "
-            "(id, name, name_normalized, type, mention_count, "
-            " created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, 1, ?, ?) "
-            "ON CONFLICT(name_normalized, type) DO UPDATE SET "
-            "  mention_count = mention_count + 1, "
-            "  updated_at = excluded.updated_at "
-            "RETURNING id",
-            (new_id, name, normalized, etype, now, now),
+        from . import extraction_write
+        extraction_write.write_extraction(
+            conn, memory_id, content,
+            result["entities"], result["relations"], time.time(),
         )
-        row = cur.fetchone()
-        return row["id"]
-
-    def _insert_mention(
-        self, conn, memory_id, entity_id, surface_form, content, now,
-    ) -> None:
-        # First-match offset; -1 → NULL.
-        start = content.find(surface_form)
-        if start == -1:
-            context_start = None
-            context_end = None
-        else:
-            context_start = start
-            context_end = start + len(surface_form)
-        try:
-            conn.execute(
-                "INSERT INTO mentions "
-                "(memory_id, entity_id, surface_form, "
-                " context_start, context_end, confidence, created_at) "
-                "VALUES (?, ?, ?, ?, ?, 1.0, ?)",
-                (memory_id, entity_id, surface_form,
-                 context_start, context_end, now),
-            )
-        except sqlite3.IntegrityError:
-            # PRIMARY KEY (memory_id, entity_id, surface_form) hit on
-            # idempotent replay — silent skip per spec.
-            pass
-
-    def _resolve_entity_id(
-        self, conn, normalized: str, name_to_id: dict,
-    ) -> str | None:
-        # Try the just-written entities first (by normalized name).
-        for (nn, _t), eid in name_to_id.items():
-            if nn == normalized:
-                return eid
-        # Fall back to any existing entity with this normalized name.
-        row = conn.execute(
-            "SELECT id FROM entities WHERE name_normalized = ? "
-            "ORDER BY mention_count DESC LIMIT 1",
-            (normalized,),
-        ).fetchone()
-        return row["id"] if row else None
-
-    def _insert_relation(
-        self, conn, src_id, tgt_id, rtype, source_memory_id, now,
-    ) -> None:
-        try:
-            conn.execute(
-                "INSERT INTO relations "
-                "(id, source_entity_id, target_entity_id, relation_type, "
-                " source_memory_id, confidence, created_at) "
-                "VALUES (?, ?, ?, ?, ?, 1.0, ?)",
-                (uuid.uuid4().hex, src_id, tgt_id, rtype,
-                 source_memory_id, now),
-            )
-        except sqlite3.IntegrityError:
-            # UNIQUE(source_entity_id, target_entity_id, relation_type,
-            # source_memory_id) — replay-safe skip.
-            pass
+        conn.commit()
 
     def _do_dedup(self, conn) -> None:
         """M5 T3: worker dedup task type. Calls the shared algorithm

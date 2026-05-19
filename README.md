@@ -234,6 +234,10 @@ sage-memory install-skills all --project
 
 **Supported agents:** Claude Code, Cursor, Codex CLI, Gemini CLI, OpenCode. Each gets its native skill format — directory of `SKILL.md` files for Claude Code, `.mdc` rules for Cursor, marker-delimited blocks in `AGENTS.md` / `GEMINI.md` for the others. Re-installs are idempotent; modified files trigger a diff prompt. Use `--dry-run` to preview, `-y` to auto-overwrite (required in non-TTY environments like CI).
 
+### Agent-driven extraction (0.9+)
+
+The agent already has an LLM behind it — sage-memory doesn't need to call a *second* one in the background to extract entities. When the agent calls `sage_memory_store`, it can pass `entities=[{name, type}, ...]` and `relations=[{from, to, rel}, ...]` so the knowledge graph is populated synchronously, no LLM API key required for sage-memory itself. Re-run `sage-memory install-skills` after upgrading from 0.8.x to refresh the bundled skills with the new extraction pattern.
+
 ## Use Cases
 
 **Coding assistants** — learn your codebase, conventions, and past debugging insights. Build architecture graphs during code exploration. Avoid repeating the same mistakes across sessions. *This is where sage-memory has the deepest benchmarks and proven skills.*

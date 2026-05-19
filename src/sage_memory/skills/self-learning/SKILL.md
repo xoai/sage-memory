@@ -136,9 +136,21 @@ sage_memory_store(
     Prevention: Before implementing any webhook handler that verifies
     signatures, check whether the SDK requires the raw request body.",
   tags: ["self-learning", "gotcha", "stripe", "webhooks"],
+  entities: [
+    {name: "Stripe", type: "TECHNOLOGY"},
+    {name: "Express", type: "TECHNOLOGY"}
+  ],
   scope: "project"
 )
 ```
+
+**Extract Before Store (0.9+).** Pass an `entities` array naming the
+technologies, services, or modules the learning is about. The
+Prevention line in particular should usually reference a real entity
+(library, service, module) so future graph traversal from that entity
+surfaces this learning. Optional `relations` array if the learning
+connects two entities (e.g., `{from: "Express", to: "Stripe", rel:
+"contradicts"}` for a body-parser/signature-verification conflict).
 
 **With files:**
 ```
