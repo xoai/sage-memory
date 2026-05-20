@@ -92,6 +92,64 @@ In `.cursor/mcp.json`:
 }
 ```
 
+### Latest vs. pinned version
+
+The config above pulls the **latest** sage-memory release on every MCP boot. To pin a specific version, use `uvx`'s `package==version` form in `args`:
+
+```json
+{
+  "mcpServers": {
+    "sage-memory": {
+      "command": "uvx",
+      "args": ["sage-memory==0.10.0"]
+    }
+  }
+}
+```
+
+Other patterns:
+
+| Goal | `args` value |
+|---|---|
+| Latest at install time (cached after) | `["sage-memory"]` |
+| **Always pull latest** (refresh on every MCP boot) | `["--refresh", "sage-memory"]` |
+| Pin exact version | `["sage-memory==0.10.0"]` |
+| Pin minor (auto-update within 0.10.x) | `["sage-memory~=0.10.0"]` |
+| Stay below the next minor | `["sage-memory>=0.10.0,<0.11.0"]` |
+| With neural embeddings | `["sage-memory[neural]"]` (add `==0.10.0` to pin) |
+
+**Note on `--refresh`:** without it, `uvx` caches the resolved version per tool (TTL-bounded), so you may keep running an old release after PyPI ships a new one. Adding `--refresh` re-resolves against PyPI on every MCP boot — pairs well with the "latest" workflow at the cost of a small startup network call.
+
+```json
+{
+  "mcpServers": {
+    "sage-memory": {
+      "command": "uvx",
+      "args": ["--refresh", "sage-memory"]
+    }
+  }
+}
+```
+
+The same syntax works for `pip install`:
+
+```bash
+pip install sage-memory                # latest
+pip install sage-memory==0.10.0        # exact pin
+pip install 'sage-memory>=0.10,<0.11'  # range pin
+pip install sage-memory[neural]        # with neural embeddings
+```
+
+Pinning is recommended for production / CI environments where reproducibility matters. For interactive coding-agent use, the latest-by-default setup is usually fine — sage-memory ships fast (we're at minor X.Y bumps every cycle), but releases are additive and backwards-compatible at the MCP wire level.
+
+After a version bump, refresh the bundled skills in your agent:
+
+```bash
+sage-memory install-skills <agent> --project   # or --global
+```
+
+`pip install -U` doesn't touch installed skill files — they live in your agent's config directories. Re-running `install-skills` after upgrade picks up any new instructions in the bundled skills.
+
 <details>
 <summary><b>Alternative: install with pip</b></summary>
 
@@ -337,7 +395,7 @@ zero-config promise — install, store, search.
 ## Architecture
 
 ```
-src/sage_memory/           ~7,000 lines · 4 deps (mcp, sqlite-vec, httpx, pyyaml)
+src/sage_memory/           ~8,600 lines · 4 deps (mcp, sqlite-vec, httpx, pyyaml)
 
   Server
   ├── server.py            MCP server: 8 tools, dict dispatch
@@ -347,6 +405,9 @@ src/sage_memory/           ~7,000 lines · 4 deps (mcp, sqlite-vec, httpx, pyyam
   ├── db.py                Project detection, dual DB, migration runner
   ├── store.py             Memory CRUD (store, update, delete, list)
   ├── graph.py             Edge management, cycle-safe traversal
+  ├── extraction_write.py  Shared entity/mention/relation write helper —
+                           used by worker AND agent-driven store path
+                           (0.9+: agents pass `entities`/`relations` inline)
   └── migrations/          8 SQL migrations: memories + FTS5 + vec0,
                            edges, health, chunks, entities,
                            embedding metadata, extraction queue,
@@ -355,32 +416,54 @@ src/sage_memory/           ~7,000 lines · 4 deps (mcp, sqlite-vec, httpx, pyyam
   Retrieval pipeline (six stages: expand → retrieve → fuse →
   dedup → rerank → score)
   ├── search.py            Dual-DB orchestration, BM25 + RRF, scoring
-  ├── expand.py            LLM query expansion (optional)
-  ├── rerank.py            LLM rerank with position blend (optional)
+  ├── expand.py            LLM query expansion (opt-in via expand=true)
+  ├── rerank.py            LLM rerank with position blend (opt-in)
   ├── graph_channel.py     Entity-mediated BFS — third RRF channel
-  └── chunker.py           Paragraph/sentence-aware splitter
+  ├── chunker.py           Paragraph/sentence-aware splitter
+  └── suggested_links.py   FTS5 link-candidate lookup; returns up to
+                           3 existing memories that overlap with a
+                           new store/update (~4ms p95 on 1K corpus)
 
   Embedder cascade
   └── embedder.py          Local + FastEmbed + OpenAI + Voyage + Cohere
 
   Background worker + LLM
-  ├── worker.py            Polling loop, at-most-one task contract
-  ├── extractor.py         LLM entity/relation extraction
+  ├── worker.py            Polling loop, at-most-one task contract.
+                           Deprecated in 0.10; removal in 1.0 once
+                           agent-driven extraction is the norm
+  ├── extractor.py         LLM entity/relation extraction + agent-payload
+                           validation (validate_agent_payload)
   ├── llm.py               Provider cascade with retry
   ├── dedup.py             LLM-confirmed memory deduplication
   └── config.py            3-layer config cascade (call > env > yaml > built-in)
 
   CLI (sage-memory <subcommand>)
   ├── cli_status.py        status
-  ├── cli_worker.py        worker
+  ├── cli_worker.py        worker --status
   ├── cli_reindex.py       reindex (--re-embed, --embeddings, ...)
   ├── cli_dedup.py         dedup (async / --sync)
-  └── cli_queue.py         queue prune
+  ├── cli_queue.py         queue prune
+  └── cli_install_skills.py
+                           install-skills <agent>... [--project | --global]
 
-skills/                    3 built-in skills (usable independently)
-├── memory/                Knowledge persistence + capture
-├── ontology/              Typed knowledge graph
-└── self-learning/         Mistake detection + prevention rules
+  install-skills package (5 agent adapters)
+  ├── install_skills/markers.py            Marker-block helpers + 0.10
+                                            legacy-name migration
+  ├── install_skills/paths.py              Per-agent target resolution (XDG)
+  ├── install_skills/prompt.py             Diff prompt + Decision enum
+  ├── install_skills/agents_markdown.py    Shared block renderer
+  ├── install_skills/_markdown_adapter_base.py
+                                            Codex/Gemini/OpenCode base
+  └── install_skills/agent_{claude_code,
+       cursor, codex, gemini, opencode}.py
+                                            One adapter per supported agent
+
+  Bundled skills (ship inside the wheel, since 0.8.0)
+  src/sage_memory/skills/
+  ├── sage-memory/         Knowledge persistence + capture
+  ├── sage-ontology/       Typed knowledge graph
+  └── sage-self-learning/  Mistake detection + prevention rules
+                           (renamed from bare names in 0.10.0)
 ```
 
 ## Development
