@@ -18,8 +18,8 @@ from sage_memory.install_skills.agent_cursor import CursorAdapter
 
 
 REPO = Path(__file__).resolve().parent.parent
-BUNDLED_MEMORY = REPO / "src" / "sage_memory" / "skills" / "memory"
-BUNDLED_ONTOLOGY = REPO / "src" / "sage_memory" / "skills" / "ontology"
+BUNDLED_MEMORY = REPO / "src" / "sage_memory" / "skills" / "sage-memory"
+BUNDLED_ONTOLOGY = REPO / "src" / "sage_memory" / "skills" / "sage-ontology"
 
 
 @pytest.fixture
@@ -32,7 +32,7 @@ def adapter():
 def test_fresh_install_creates_mdc_with_frontmatter(adapter, tmp_path):
     target = tmp_path / ".cursor" / "rules"
     results = adapter.install_to(
-        target=target, skill_name="memory", skill_dir=BUNDLED_MEMORY,
+        target=target, skill_name="sage-memory", skill_dir=BUNDLED_MEMORY,
         version="0.8.0", dry_run=False, yes=False,
     )
     mdc = target / "sage-memory.mdc"
@@ -58,7 +58,7 @@ def test_skill_body_has_skill_md_frontmatter_stripped(adapter, tmp_path):
     in the .mdc body — we don't want two frontmatter blocks."""
     target = tmp_path / ".cursor" / "rules"
     adapter.install_to(
-        target=target, skill_name="memory", skill_dir=BUNDLED_MEMORY,
+        target=target, skill_name="sage-memory", skill_dir=BUNDLED_MEMORY,
         version="0.8.0", dry_run=False, yes=False,
     )
     text = (target / "sage-memory.mdc").read_text()
@@ -78,7 +78,7 @@ def test_description_comes_from_skill_md_frontmatter(adapter, tmp_path):
     but it must be non-empty and a one-line string (no embedded newlines)."""
     target = tmp_path / ".cursor" / "rules"
     adapter.install_to(
-        target=target, skill_name="memory", skill_dir=BUNDLED_MEMORY,
+        target=target, skill_name="sage-memory", skill_dir=BUNDLED_MEMORY,
         version="0.8.0", dry_run=False, yes=False,
     )
     text = (target / "sage-memory.mdc").read_text()
@@ -96,7 +96,7 @@ def test_description_comes_from_skill_md_frontmatter(adapter, tmp_path):
 def test_fresh_install_creates_parent_dirs(adapter, tmp_path):
     target = tmp_path / "deep" / "nested" / ".cursor" / "rules"
     adapter.install_to(
-        target=target, skill_name="memory", skill_dir=BUNDLED_MEMORY,
+        target=target, skill_name="sage-memory", skill_dir=BUNDLED_MEMORY,
         version="0.8.0", dry_run=False, yes=False,
     )
     assert (target / "sage-memory.mdc").is_file()
@@ -105,10 +105,10 @@ def test_fresh_install_creates_parent_dirs(adapter, tmp_path):
 def test_three_skills_produce_three_mdc_files(adapter, tmp_path):
     target = tmp_path / ".cursor" / "rules"
     for skill, dir_ in [
-        ("memory", BUNDLED_MEMORY),
-        ("ontology", BUNDLED_ONTOLOGY),
-        ("self-learning",
-         REPO / "src" / "sage_memory" / "skills" / "self-learning"),
+        ("sage-memory", BUNDLED_MEMORY),
+        ("sage-ontology", BUNDLED_ONTOLOGY),
+        ("sage-self-learning",
+         REPO / "src" / "sage_memory" / "skills" / "sage-self-learning"),
     ]:
         adapter.install_to(
             target=target, skill_name=skill, skill_dir=dir_,
@@ -124,9 +124,9 @@ def test_three_skills_produce_three_mdc_files(adapter, tmp_path):
 
 def test_reinstall_unchanged(adapter, tmp_path):
     target = tmp_path / ".cursor" / "rules"
-    adapter.install_to(target=target, skill_name="memory",
+    adapter.install_to(target=target, skill_name="sage-memory",
         skill_dir=BUNDLED_MEMORY, version="0.8.0", dry_run=False, yes=False)
-    results = adapter.install_to(target=target, skill_name="memory",
+    results = adapter.install_to(target=target, skill_name="sage-memory",
         skill_dir=BUNDLED_MEMORY, version="0.8.0", dry_run=False, yes=False)
     assert results[0].status == Status.UNCHANGED
 
@@ -135,7 +135,7 @@ def test_reinstall_unchanged(adapter, tmp_path):
 
 def test_dry_run_writes_nothing(adapter, tmp_path):
     target = tmp_path / ".cursor" / "rules"
-    results = adapter.install_to(target=target, skill_name="memory",
+    results = adapter.install_to(target=target, skill_name="sage-memory",
         skill_dir=BUNDLED_MEMORY, version="0.8.0", dry_run=True, yes=False)
     assert not (target / "sage-memory.mdc").exists()
     assert results[0].status == Status.WOULD_CREATE
@@ -147,7 +147,7 @@ def test_conflict_overwrite_via_yes(adapter, tmp_path):
     target = tmp_path / ".cursor" / "rules"
     target.mkdir(parents=True)
     (target / "sage-memory.mdc").write_text("LOCAL EDIT")
-    results = adapter.install_to(target=target, skill_name="memory",
+    results = adapter.install_to(target=target, skill_name="sage-memory",
         skill_dir=BUNDLED_MEMORY, version="0.8.0", dry_run=False, yes=True)
     text = (target / "sage-memory.mdc").read_text()
     assert "LOCAL EDIT" not in text
@@ -164,7 +164,7 @@ def test_conflict_keep_via_prompt(adapter, tmp_path, monkeypatch):
         prompt, "prompt_conflict",
         lambda *a, **kw: prompt.Decision.KEEP,
     )
-    results = adapter.install_to(target=target, skill_name="memory",
+    results = adapter.install_to(target=target, skill_name="sage-memory",
         skill_dir=BUNDLED_MEMORY, version="0.8.0", dry_run=False, yes=False)
     assert (target / "sage-memory.mdc").read_text() == "LOCAL EDIT — keep me"
     assert results[0].status == Status.KEPT
@@ -182,7 +182,7 @@ def test_symlink_at_target_refuses(adapter, tmp_path):
     except OSError:
         pytest.skip("filesystem refuses symlink creation")
     with pytest.raises(OSError, match="symlink"):
-        adapter.install_to(target=target, skill_name="memory",
+        adapter.install_to(target=target, skill_name="sage-memory",
             skill_dir=BUNDLED_MEMORY, version="0.8.0", dry_run=False, yes=True)
 
 

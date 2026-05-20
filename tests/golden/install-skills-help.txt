@@ -1,5 +1,5 @@
 usage: sage-memory install-skills [-h] [--project | --global]
-                                  [--skill {memory,ontology,self-learning}]
+                                  [--skill {sage-memory,sage-ontology,sage-self-learning}]
                                   [--dry-run] [-y]
                                   [{claude-code,codex,gemini,cursor,opencode,all} ...]
 
@@ -15,7 +15,7 @@ options:
   -h, --help            show this help message and exit
   --project             install to the current working directory
   --global              install to the user's home-level config
-  --skill {memory,ontology,self-learning}
+  --skill {sage-memory,sage-ontology,sage-self-learning}
                         install only this skill (repeatable; default: all
                         three)
   --dry-run             show what would change, write nothing

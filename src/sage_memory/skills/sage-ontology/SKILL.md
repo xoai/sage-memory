@@ -1,5 +1,5 @@
 ---
-name: ontology
+name: sage-ontology
 description: >
   Typed knowledge graph stored in sage-memory. Use when creating or querying
   structured entities (Person, Project, Task, Event, Document), linking

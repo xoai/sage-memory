@@ -2,9 +2,10 @@
 directory copied recursively.
 
 Claude Code reads skills from `~/.claude/skills/<skill-name>/SKILL.md`
-(global) or `.claude/skills/<skill-name>/SKILL.md` (project). The
-sage-memory bundled skills are namespaced under `sage-<skill>` to avoid
-colliding with user-authored skills of the same base name.
+(global) or `.claude/skills/<skill-name>/SKILL.md` (project). Bundled
+skills already carry the `sage-` prefix in their source folder names
+(`sage-memory`, `sage-ontology`, `sage-self-learning`, since 0.10.0),
+so the adapter installs them verbatim — no extra prefix logic.
 
 Files are copied byte-for-byte. Per-file conflict resolution: if the
 destination differs from the bundled version, the user is prompted
@@ -34,7 +35,7 @@ class ClaudeCodeAdapter:
         dry_run: bool,
         yes: bool,
     ) -> list[FileResult]:
-        install_dir = target / f"sage-{skill_name}"
+        install_dir = target / skill_name
         results: list[FileResult] = []
 
         # Iterate every file in the bundled skill tree.

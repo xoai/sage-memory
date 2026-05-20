@@ -13,14 +13,19 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 
 
-def test_pyproject_version_is_090():
+def test_pyproject_carries_a_version():
+    """pyproject.toml has SOME version. Exact version asserted by the
+    active release cycle's own acceptance test (0.10.0 lives in
+    test_skill_rename_release.py); this check is a stale-file smoke."""
     text = (REPO / "pyproject.toml").read_text()
-    assert 'version = "0.9.0"' in text
+    import re
+    assert re.search(r'version = "\d+\.\d+\.\d+"', text)
 
 
-def test_package_version_resolves_to_090():
+def test_package_version_resolves_to_a_version():
     import sage_memory
-    assert sage_memory.__version__ == "0.9.0"
+    import re
+    assert re.match(r"^\d+\.\d+\.\d+", sage_memory.__version__)
 
 
 def test_changelog_has_090_entry():

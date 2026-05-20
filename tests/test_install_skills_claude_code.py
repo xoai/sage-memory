@@ -16,8 +16,8 @@ from sage_memory.install_skills.agent_claude_code import ClaudeCodeAdapter
 
 
 REPO = Path(__file__).resolve().parent.parent
-BUNDLED_MEMORY = REPO / "src" / "sage_memory" / "skills" / "memory"
-BUNDLED_ONTOLOGY = REPO / "src" / "sage_memory" / "skills" / "ontology"
+BUNDLED_MEMORY = REPO / "src" / "sage_memory" / "skills" / "sage-memory"
+BUNDLED_ONTOLOGY = REPO / "src" / "sage_memory" / "skills" / "sage-ontology"
 
 
 @pytest.fixture
@@ -34,7 +34,7 @@ def _all_files(d: Path) -> list[Path]:
 def test_fresh_install_creates_skill_md(adapter, tmp_path):
     target = tmp_path / ".claude" / "skills"
     results = adapter.install_to(
-        target=target, skill_name="memory", skill_dir=BUNDLED_MEMORY,
+        target=target, skill_name="sage-memory", skill_dir=BUNDLED_MEMORY,
         version="0.8.0", dry_run=False, yes=False,
     )
     skill_md = target / "sage-memory" / "SKILL.md"
@@ -49,7 +49,7 @@ def test_fresh_install_creates_skill_md(adapter, tmp_path):
 def test_fresh_install_copies_references_dir_recursively(adapter, tmp_path):
     target = tmp_path / ".claude" / "skills"
     adapter.install_to(
-        target=target, skill_name="memory", skill_dir=BUNDLED_MEMORY,
+        target=target, skill_name="sage-memory", skill_dir=BUNDLED_MEMORY,
         version="0.8.0", dry_run=False, yes=False,
     )
     installed = target / "sage-memory"
@@ -62,7 +62,7 @@ def test_fresh_install_creates_parent_directories(adapter, tmp_path):
     target = tmp_path / "deep" / "nested" / "path" / ".claude" / "skills"
     assert not target.exists()
     adapter.install_to(
-        target=target, skill_name="memory", skill_dir=BUNDLED_MEMORY,
+        target=target, skill_name="sage-memory", skill_dir=BUNDLED_MEMORY,
         version="0.8.0", dry_run=False, yes=False,
     )
     assert (target / "sage-memory" / "SKILL.md").is_file()
@@ -73,7 +73,7 @@ def test_fresh_install_copies_ontology_scripts_dir(adapter, tmp_path):
     The adapter must mirror the entire skill tree, not just markdown."""
     target = tmp_path / ".claude" / "skills"
     adapter.install_to(
-        target=target, skill_name="ontology", skill_dir=BUNDLED_ONTOLOGY,
+        target=target, skill_name="sage-ontology", skill_dir=BUNDLED_ONTOLOGY,
         version="0.8.0", dry_run=False, yes=False,
     )
     assert (target / "sage-ontology" / "scripts" / "graph_check.py").is_file()
@@ -83,10 +83,10 @@ def test_fresh_install_copies_ontology_scripts_dir(adapter, tmp_path):
 
 def test_reinstall_unchanged_returns_unchanged_status(adapter, tmp_path):
     target = tmp_path / ".claude" / "skills"
-    adapter.install_to(target=target, skill_name="memory",
+    adapter.install_to(target=target, skill_name="sage-memory",
         skill_dir=BUNDLED_MEMORY, version="0.8.0", dry_run=False, yes=False)
     # Second run with no edits
-    results = adapter.install_to(target=target, skill_name="memory",
+    results = adapter.install_to(target=target, skill_name="sage-memory",
         skill_dir=BUNDLED_MEMORY, version="0.8.0", dry_run=False, yes=False)
     statuses = {r.status for r in results}
     assert statuses == {Status.UNCHANGED}
@@ -96,7 +96,7 @@ def test_reinstall_unchanged_returns_unchanged_status(adapter, tmp_path):
 
 def test_dry_run_writes_nothing_on_fresh_install(adapter, tmp_path):
     target = tmp_path / ".claude" / "skills"
-    results = adapter.install_to(target=target, skill_name="memory",
+    results = adapter.install_to(target=target, skill_name="sage-memory",
         skill_dir=BUNDLED_MEMORY, version="0.8.0", dry_run=True, yes=False)
     assert not (target / "sage-memory").exists()
     # Reports what WOULD happen — distinct from actual CREATED so the
@@ -114,7 +114,7 @@ def test_conflict_overwrite_via_yes(adapter, tmp_path):
     installed.mkdir(parents=True)
     (installed / "SKILL.md").write_text("LOCAL EDIT")
     # --yes → overwrite
-    results = adapter.install_to(target=target, skill_name="memory",
+    results = adapter.install_to(target=target, skill_name="sage-memory",
         skill_dir=BUNDLED_MEMORY, version="0.8.0", dry_run=False, yes=True)
     assert (installed / "SKILL.md").read_bytes() == (BUNDLED_MEMORY / "SKILL.md").read_bytes()
     skill_md_results = [r for r in results if r.path.name == "SKILL.md"]
@@ -132,7 +132,7 @@ def test_conflict_keep_via_prompt(adapter, tmp_path, monkeypatch):
         prompt, "prompt_conflict",
         lambda *a, **kw: prompt.Decision.KEEP,
     )
-    results = adapter.install_to(target=target, skill_name="memory",
+    results = adapter.install_to(target=target, skill_name="sage-memory",
         skill_dir=BUNDLED_MEMORY, version="0.8.0", dry_run=False, yes=False)
     # Local content preserved
     assert (installed / "SKILL.md").read_text() == "LOCAL EDIT — keep me"
@@ -150,7 +150,7 @@ def test_conflict_skip_via_prompt(adapter, tmp_path, monkeypatch):
         prompt, "prompt_conflict",
         lambda *a, **kw: prompt.Decision.SKIP,
     )
-    results = adapter.install_to(target=target, skill_name="memory",
+    results = adapter.install_to(target=target, skill_name="sage-memory",
         skill_dir=BUNDLED_MEMORY, version="0.8.0", dry_run=False, yes=False)
     # Local content preserved (skip == keep for the file)
     assert (installed / "SKILL.md").read_text() == "LOCAL EDIT"
@@ -171,7 +171,7 @@ def test_symlink_at_target_refuses(adapter, tmp_path):
     except OSError:
         pytest.skip("filesystem refuses symlink creation (WSL/Windows)")
     with pytest.raises(OSError, match="symlink"):
-        adapter.install_to(target=target, skill_name="memory",
+        adapter.install_to(target=target, skill_name="sage-memory",
             skill_dir=BUNDLED_MEMORY, version="0.8.0", dry_run=False, yes=True)
 
 

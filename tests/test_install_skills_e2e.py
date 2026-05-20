@@ -114,7 +114,7 @@ def test_scenario_6_marker_block_round_trip(tmp_install_root):
     text = target.read_text()
     assert "User's existing AGENTS.md" in text
     assert "Some user rules here." in text
-    assert "<!-- sage-memory:skill:memory:begin -->" in text
+    assert "<!-- sage-memory:skill:sage-memory:begin -->" in text
 
 
 # ────────────────────────────────────────────────────────────────
@@ -299,9 +299,9 @@ def test_codex_and_opencode_both_run_on_shared_target(tmp_install_root, capsys):
     )
     # Exactly one AGENTS.md file, with three skill blocks
     agents_md = (tmp_install_root.project / "AGENTS.md").read_text()
-    assert agents_md.count("<!-- sage-memory:skill:memory:begin -->") == 1
-    assert agents_md.count("<!-- sage-memory:skill:ontology:begin -->") == 1
-    assert agents_md.count("<!-- sage-memory:skill:self-learning:begin -->") == 1
+    assert agents_md.count("<!-- sage-memory:skill:sage-memory:begin -->") == 1
+    assert agents_md.count("<!-- sage-memory:skill:sage-ontology:begin -->") == 1
+    assert agents_md.count("<!-- sage-memory:skill:sage-self-learning:begin -->") == 1
 
 
 def test_scenario_14_xdg_config_home_override(tmp_install_root):

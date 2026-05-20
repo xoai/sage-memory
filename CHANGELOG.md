@@ -2,6 +2,85 @@
 
 All notable changes to sage-memory will be documented in this file.
 
+## [0.10.0] — 2026-05-20
+
+Skill identifier rename for collision-free install. Source folders
+and the `name:` frontmatter of all three bundled skills now carry
+the `sage-` prefix (`sage-memory`, `sage-ontology`,
+`sage-self-learning`). Adapters install verbatim — install paths
+are byte-identical to 0.9.0, so existing installations don't move.
+Marker blocks in `AGENTS.md` / `GEMINI.md` style targets get
+new names, with transparent legacy-block migration on re-install.
+
+### Changed
+
+- **Source folders renamed** under `src/sage_memory/skills/`:
+  `memory/` → `sage-memory/`, `ontology/` → `sage-ontology/`,
+  `self-learning/` → `sage-self-learning/`. `name:` frontmatter
+  field inside each `SKILL.md` updated to match.
+- **`sage-memory install-skills --skill` accepted values updated:**
+  `sage-memory`, `sage-ontology`, `sage-self-learning`. Legacy bare
+  names (`memory`, `ontology`, `self-learning`) are rejected with
+  a migration hint pointing at the new prefixed name and CHANGELOG.
+- **Adapter prefix dropped.** `agent_claude_code` and `agent_cursor`
+  no longer prepend `sage-` at install time — the source folder name
+  IS the install name. End result: installed paths are byte-identical
+  to 0.9.0 outputs (`~/.claude/skills/sage-memory/`,
+  `~/.cursor/rules/sage-memory.mdc`, etc.).
+
+### Migration (transparent)
+
+- **Marker-block migration is automatic on re-install.** Running
+  `sage-memory install-skills <agent> -y` against an `AGENTS.md` /
+  `GEMINI.md` file with legacy `<!-- sage-memory:skill:memory:begin
+  -->` blocks detects each legacy block and replaces it with a
+  new-named `<!-- sage-memory:skill:sage-memory:begin -->` block.
+  No manual edit needed; no orphan blocks.
+- **No install-path migration needed.** Existing 0.9.0 installs at
+  `~/.claude/skills/sage-memory/`, `.cursor/rules/sage-memory.mdc`,
+  `.codex/AGENTS.md`, etc. stay in place. On `-y`, SKILL.md content
+  refreshes with the new `name:` field (single diff prompt without
+  `-y`); no second copy lands at a different location.
+
+### Unchanged
+
+- Agent identifiers (`claude-code`, `codex`, `gemini`, `cursor`,
+  `opencode`, `all`) — same.
+- Scope flags (`--project`, `--global`) — same.
+- Behavior flags (`--dry-run`, `-y`, `--skill`) — same shape; only
+  `--skill` accepted-values list changed.
+- MCP server tool names (`sage_memory_store` etc.) — unchanged.
+- Schema, retrieval pipeline, embedder cascade, entity extraction —
+  all unchanged. No retrieval code touched this cycle.
+
+### Breaking
+
+- **Hard-coded `--skill memory` / `--skill ontology` /
+  `--skill self-learning` invocations** in user scripts or shell
+  aliases need updates. One-line user fix per invocation. Error
+  output points users at the new name.
+
+### Aesthetic note
+
+- Marker blocks follow the pattern `<!-- sage-memory:skill:<id>:begin -->`
+  where `<id>` is the renamed skill identifier — e.g. `sage-memory`,
+  `sage-ontology`, `sage-self-learning`. For the sage-memory skill
+  specifically, this stutters as `sage-memory:skill:sage-memory:begin`
+  (the constant prefix `sage-memory:skill:` is the product namespace,
+  the trailing `sage-memory` is the skill id). Unambiguous, intentional
+  — not a typo.
+
+### Upgrade notes (0.9.0 → 0.10.0)
+
+```bash
+pip install -U sage-memory                            # 0.10.0
+sage-memory install-skills <agent> --project -y       # transparent migration
+```
+
+The re-install detects + replaces any legacy-named blocks. If you
+have a custom skill setup that referenced the bare folder names,
+update those references manually.
+
 ## [0.9.0] — 2026-05-19
 
 Agent-driven extraction. The calling agent (Claude Code, Cursor,

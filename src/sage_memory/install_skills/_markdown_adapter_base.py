@@ -12,6 +12,18 @@ from sage_memory.install_skills import FileResult, Status, markers, prompt
 from sage_memory.install_skills.agents_markdown import render_block
 
 
+# 0.10.0 skill rename — maps current skill identifier to the legacy
+# bare name used in pre-0.10.0 marker blocks. On re-install, we scrub
+# any legacy-named block from the target file before writing the new
+# one, so users upgrading from 0.9.0 / 0.8.0 see invisible migration.
+LEGACY_NAME_MAP = {
+    "sage-memory": "memory",
+    "sage-ontology": "ontology",
+    "sage-self-learning": "self-learning",
+}
+_MAX_LEGACY_BLOCKS_PER_FILE = 50
+
+
 class MarkdownBlockAdapter:
     """Base class: install one marker-delimited block per skill into a
     single target file. The target file is shared across multiple
@@ -47,6 +59,20 @@ class MarkdownBlockAdapter:
             return [FileResult(target, Status.CREATED)]
 
         existing_text = target.read_text()
+
+        # 0.10.0 migration: scrub any legacy-named block for this
+        # skill before reading the new-name block. Loop with a
+        # defensive cap; one delete call removes exactly one block
+        # per its contract.
+        legacy_name = LEGACY_NAME_MAP.get(skill_name)
+        if legacy_name is not None:
+            for _ in range(_MAX_LEGACY_BLOCKS_PER_FILE):
+                if markers.find_block(existing_text, legacy_name) is None:
+                    break
+                existing_text = markers.delete_block_by_name(
+                    existing_text, legacy_name,
+                )
+
         existing_span = markers.find_block(existing_text, skill_name)
 
         if existing_span is None:

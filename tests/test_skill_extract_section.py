@@ -21,7 +21,7 @@ SKILLS_ROOT = (
 )
 
 
-@pytest.mark.parametrize("skill", ["memory", "ontology", "self-learning"])
+@pytest.mark.parametrize("skill", ["sage-memory", "sage-ontology", "sage-self-learning"])
 def test_skill_md_references_entities_param(skill):
     """The new `entities` parameter must be visible in each skill's
     SKILL.md — either via a code example or in prose."""
@@ -33,30 +33,30 @@ def test_skill_md_references_entities_param(skill):
 
 
 def test_memory_skill_has_extract_before_store_section():
-    text = (SKILLS_ROOT / "memory" / "SKILL.md").read_text()
+    text = (SKILLS_ROOT / "sage-memory" / "SKILL.md").read_text()
     assert "### Extract Before Store" in text
     # Has the controlled vocab callout
     assert "PERSON, CONCEPT, TECHNOLOGY" in text or "TECHNOLOGY" in text
 
 
 def test_memory_skill_mentions_suggested_links():
-    text = (SKILLS_ROOT / "memory" / "SKILL.md").read_text()
+    text = (SKILLS_ROOT / "sage-memory" / "SKILL.md").read_text()
     assert "suggested_links" in text
 
 
 def test_ontology_skill_mentions_agent_driven_extraction():
-    text = (SKILLS_ROOT / "ontology" / "SKILL.md").read_text()
+    text = (SKILLS_ROOT / "sage-ontology" / "SKILL.md").read_text()
     assert "Agent-driven extraction" in text or "agent-driven" in text.lower()
 
 
 def test_self_learning_skill_extract_pattern_in_how_to_store():
-    text = (SKILLS_ROOT / "self-learning" / "SKILL.md").read_text()
+    text = (SKILLS_ROOT / "sage-self-learning" / "SKILL.md").read_text()
     assert "Extract Before Store" in text
     # Self-learning specifically links Prevention to entities
     assert "Prevention" in text and "entity" in text.lower()
 
 
-@pytest.mark.parametrize("skill", ["memory", "ontology", "self-learning"])
+@pytest.mark.parametrize("skill", ["sage-memory", "sage-ontology", "sage-self-learning"])
 def test_skill_md_remains_valid_yaml_frontmatter(skill):
     """Quick sanity check: each SKILL.md still starts with a YAML
     frontmatter block."""

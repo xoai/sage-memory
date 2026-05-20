@@ -2,10 +2,12 @@
 
 Cursor reads rule files from `.cursor/rules/*.mdc`. Each .mdc has
 required frontmatter (`description`, `globs`, `alwaysApply`) and a
-markdown body. We write one file per skill named `sage-<skill>.mdc`,
-deriving `description` from the bundled SKILL.md's own `description:`
-field and using `globs: ["**/*"]` + `alwaysApply: false` so the rule
-loads on demand rather than for every file.
+markdown body. We write one file per skill named `<skill_name>.mdc`,
+where `skill_name` is the bundled folder name (`sage-memory`,
+`sage-ontology`, `sage-self-learning`, since 0.10.0). The `description`
+is derived from the bundled SKILL.md's own `description:` field, using
+`globs: ["**/*"]` + `alwaysApply: false` so the rule loads on demand
+rather than for every file.
 """
 
 from __future__ import annotations
@@ -90,7 +92,7 @@ class CursorAdapter:
         dry_run: bool,
         yes: bool,
     ) -> list[FileResult]:
-        dst = target / f"sage-{skill_name}.mdc"
+        dst = target / f"{skill_name}.mdc"
         skill_md = (skill_dir / "SKILL.md").read_text()
         bundled = _render_mdc(skill_md)
 

@@ -10,16 +10,16 @@
 
 sage-memory is a local [MCP](https://modelcontextprotocol.io) memory server for AI agents. It gives any AI assistant — coding tools, personal agents, team copilots — three kinds of persistent memory that compound over time:
 
-- **Knowledge** — what you understand. Architecture, conventions, preferences, domain logic. *(→ memory skill)*
+- **Knowledge** — what you understand. Architecture, conventions, preferences, domain logic. *(→ sage-memory skill)*
 
-- **Structure** — how things connect. Entity relationships, dependency graphs, ownership. *(→ ontology skill)*
+- **Structure** — how things connect. Entity relationships, dependency graphs, ownership. *(→ sage-ontology skill)*
 
-- **Experience** — what you've learned the hard way. Mistakes, corrections, prevention rules. *(→ self-learning skill)*
+- **Experience** — what you've learned the hard way. Mistakes, corrections, prevention rules. *(→ sage-self-learning skill)*
 
 One search returns all three. The agent knows how things work, how they connect, and what to watch out for — the way a human expert thinks about a domain.
 
 ```
-  memory skill      ontology skill      self-learning skill
+  sage-memory       sage-ontology      sage-self-learning
        │                  │                     │
        ▼                  ▼                     ▼
   ┌─────────┐       ┌────────────┐        ┌────────────┐
@@ -203,15 +203,17 @@ Typed directed edges between memories via `sage_memory_link`. Cycle-safe multi-h
 
 Three built-in skills, one for each kind of memory. Each works with MCP (full capability) or filesystem fallback (reduced but functional).
 
-### memory → Knowledge
+Skill identifiers are prefixed `sage-` since 0.10.0 to avoid collision with agents' native skill catalogs: `sage-memory`, `sage-ontology`, `sage-self-learning`.
+
+### sage-memory → Knowledge
 
 Three layers: automatic recall at session start, automatic remember during work, deliberate capture via `sage learn` with dependency graph building and knowledge reports.
 
-### ontology → Structure
+### sage-ontology → Structure
 
 Typed knowledge graph. Entities (Task, Person, Project, Event, Document) as memories. Relationships as graph edges via `sage_memory_link`. Validation rules, cardinality constraints, cycle detection.
 
-### self-learning → Experience
+### sage-self-learning → Experience
 
 Closed-loop mistake detection. Five types: gotcha, correction, convention, api-drift, error-fix. Every learning has a four-part structure: what happened, why wrong, what's correct, prevention rule. Promotion ladder: context → personal → team scope.
 

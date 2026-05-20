@@ -1,5 +1,5 @@
 ---
-name: self-learning
+name: sage-self-learning
 description: >
   Captures agent mistakes, corrections, and discovered gotchas so they are
   not repeated. Use when: (1) a command or operation fails unexpectedly,
@@ -7,9 +7,9 @@ description: >
   behavior through debugging, (4) an API or tool behaves differently than
   expected, (5) a better approach is found for a recurring task. Also
   searches past learnings before starting tasks to avoid known pitfalls.
-  Activate alongside the memory skill — they share sage-memory but serve
-  different purposes (memory = codebase knowledge, self-learning = agent
-  mistakes and gotchas).
+  Activate alongside the sage-memory skill — they share the same MCP
+  backend but serve different purposes (sage-memory = codebase
+  knowledge, sage-self-learning = agent mistakes and gotchas).
 version: "1.2.0"
 type: process
 ---
@@ -35,7 +35,7 @@ During recall, learnings surface as warnings alongside regular knowledge.
 | Update learnings | ✅ `sage_memory_update` | ✅ edit file |
 | Delete learnings | ✅ `sage_memory_delete` | ✅ delete file |
 | Browse by type | ✅ `sage_memory_list` | ✅ scan `lrn-` files |
-| Link to entities | ✅ `sage_memory_link` | ⚠️ `relations:` frontmatter (see ontology skill) |
+| Link to entities | ✅ `sage_memory_link` | ⚠️ `relations:` frontmatter (see sage-ontology skill) |
 | Multi-hop graph recall | ✅ `sage_memory_graph` | ❌ single-hop scan only |
 | Namespace isolation | ✅ `filter_tags` | ✅ `lrn-` filename prefix |
 

@@ -1,5 +1,5 @@
 ---
-name: memory
+name: sage-memory
 description: >
   Integrates sage-memory into Sage workflows. Teaches the agent when to
   remember (store findings during work), when to recall (search memory at
@@ -26,7 +26,7 @@ filesystem fallback (reduced but functional).
 | Update existing | ✅ `sage_memory_update` | ✅ edit file |
 | Delete | ✅ `sage_memory_delete` | ✅ delete file |
 | Browse / list | ✅ `sage_memory_list` with tag filter | ✅ directory listing |
-| Link related memories | ✅ `sage_memory_link` | ⚠️ `relations:` frontmatter (see ontology skill) |
+| Link related memories | ✅ `sage_memory_link` | ⚠️ `relations:` frontmatter (see sage-ontology skill) |
 | Multi-hop graph traversal | ✅ `sage_memory_graph` | ❌ single-hop scan only |
 | Tag filtering | ✅ `filter_tags` | ⚠️ frontmatter scan |
 | Deduplication | ✅ SHA-256 automatic | ⚠️ manual (check filenames) |
@@ -39,7 +39,7 @@ works.
 
 ## File Fallback Format
 
-All three skills (memory, ontology, self-learning) share the same
+All three skills (sage-memory, sage-ontology, sage-self-learning) share the same
 directory and file format when MCP is unavailable.
 
 **Location:** `.sage-memory/` at the project root.
@@ -285,7 +285,7 @@ Key Components, Diagrams (mermaid), Insights, Recommendations, Metadata.
 
 ## Unified Knowledge Facets
 
-Memory, ontology, and self-learning are three facets of ONE knowledge
+sage-memory, sage-ontology, and sage-self-learning are three facets of ONE knowledge
 system. Differentiation through tags (MCP) or `type` field (files):
 
 | Facet | MCP tags | File type | Purpose |

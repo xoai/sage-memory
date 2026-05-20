@@ -37,7 +37,13 @@ _ADAPTER_MODULES = {
 }
 
 AGENT_CHOICES = ["claude-code", "codex", "gemini", "cursor", "opencode", "all"]
-SKILL_CHOICES = ["memory", "ontology", "self-learning"]
+SKILL_CHOICES = ["sage-memory", "sage-ontology", "sage-self-learning"]
+
+# 0.10.0 rename — old bare names. argparse's `choices=` validation
+# with `exit_on_error=False` raises `ArgumentError` directly from
+# `_check_value`, which we catch in dispatch and inspect for these
+# names to prepend a migration hint.
+_LEGACY_SKILL_NAMES = frozenset({"memory", "ontology", "self-learning"})
 
 
 def register_adapter(name: str, adapter: object) -> None:
@@ -134,7 +140,18 @@ def run_install_skills(argv: Sequence[str]) -> int:
     try:
         args = parser.parse_args(argv)
     except argparse.ArgumentError as e:
-        _print_err(str(e))
+        msg = str(e)
+        # 0.10.0 skill rename: detect legacy bare names in the
+        # "invalid choice" error and prepend a migration hint.
+        if "invalid choice" in msg:
+            for legacy in _LEGACY_SKILL_NAMES:
+                if f"'{legacy}'" in msg:
+                    msg = (
+                        f"{msg}. Skill names were renamed in 0.10.0 — "
+                        f"try 'sage-{legacy}'. See CHANGELOG for details."
+                    )
+                    break
+        _print_err(msg)
         return 1
     except SystemExit as e:
         # argparse may still call sys.exit for some failure modes; the
@@ -162,7 +179,7 @@ def run_install_skills(argv: Sequence[str]) -> int:
                 seen.add(a)
                 agents.append(a)
 
-    skills = args.skill or SKILL_CHOICES
+    skills = args.skill or list(SKILL_CHOICES)  # defensive copy
 
     cwd = Path.cwd()
     if args.project:

@@ -15,7 +15,7 @@ from sage_memory.install_skills.agent_gemini import GeminiAdapter
 
 
 REPO = Path(__file__).resolve().parent.parent
-BUNDLED_MEMORY = REPO / "src" / "sage_memory" / "skills" / "memory"
+BUNDLED_MEMORY = REPO / "src" / "sage_memory" / "skills" / "sage-memory"
 
 
 @pytest.fixture
@@ -26,20 +26,20 @@ def adapter():
 def test_fresh_install_creates_gemini_md(adapter, tmp_path):
     target = tmp_path / "GEMINI.md"
     results = adapter.install_to(
-        target=target, skill_name="memory", skill_dir=BUNDLED_MEMORY,
+        target=target, skill_name="sage-memory", skill_dir=BUNDLED_MEMORY,
         version="0.8.0", dry_run=False, yes=False,
     )
     assert target.is_file()
     text = target.read_text()
-    assert "<!-- sage-memory:skill:memory:begin -->" in text
+    assert "<!-- sage-memory:skill:sage-memory:begin -->" in text
     assert results[0].status == Status.CREATED
 
 
 def test_idempotent_reinstall(adapter, tmp_path):
     target = tmp_path / "GEMINI.md"
-    adapter.install_to(target=target, skill_name="memory",
+    adapter.install_to(target=target, skill_name="sage-memory",
         skill_dir=BUNDLED_MEMORY, version="0.8.0", dry_run=False, yes=False)
-    results = adapter.install_to(target=target, skill_name="memory",
+    results = adapter.install_to(target=target, skill_name="sage-memory",
         skill_dir=BUNDLED_MEMORY, version="0.8.0", dry_run=False, yes=False)
     assert results[0].status == Status.UNCHANGED
 

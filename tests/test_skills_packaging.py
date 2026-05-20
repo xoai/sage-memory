@@ -21,7 +21,7 @@ import pytest
 
 
 REPO = Path(__file__).resolve().parent.parent
-SKILLS = ("memory", "ontology", "self-learning")
+SKILLS = ("sage-memory", "sage-ontology", "sage-self-learning")
 
 
 # ---- Runtime resolution (no build required) ----
@@ -44,7 +44,7 @@ def test_references_dir_resolves(skill: str):
 
 
 def test_ontology_scripts_dir_resolves():
-    p = files("sage_memory") / "skills" / "ontology" / "scripts"
+    p = files("sage_memory") / "skills" / "sage-ontology" / "scripts"
     assert p.is_dir()
     names = {x.name for x in p.iterdir()}
     assert "graph_check.py" in names

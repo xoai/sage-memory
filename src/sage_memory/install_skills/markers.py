@@ -127,3 +127,33 @@ def replace_or_append(text: str, name: str, new_block: str) -> str:
         return text.rstrip("\n") + "\n\n" + new_block
     begin, end = span
     return text[:begin] + new_block + text[end:]
+
+
+def delete_block_by_name(text: str, name: str) -> str:
+    """Remove ONE block named `name` from `text`. Returns `text`
+    unchanged if no block found.
+
+    Consumes up to 2 trailing newlines after the deleted block (the
+    one separating the end marker from the next content, plus an
+    optional blank-line padding line) so repeated migrations don't
+    accumulate empty lines between sibling content.
+
+    Used by `MarkdownBlockAdapter` to migrate legacy-named skill
+    blocks (e.g., `<!-- sage-memory:skill:memory:begin -->` from
+    pre-0.10.0 installs) into the new prefixed namespace on re-install.
+    """
+    span = find_block(text, name)
+    if span is None:
+        return text
+    begin, end = span
+    # Consume the newline that separates the end-marker from the next
+    # content (always present in well-formed blocks emitted by
+    # `format_block`).
+    if end < len(text) and text[end] == "\n":
+        end += 1
+    # Consume one MORE newline if that produces a blank line —
+    # collapses `before\n\n<block>\n\nafter` into `before\n\nafter`
+    # rather than `before\n\n\nafter`.
+    if end < len(text) and text[end] == "\n":
+        end += 1
+    return text[:begin] + text[end:]
