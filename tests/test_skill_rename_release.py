@@ -1,6 +1,12 @@
 """Task 7 — 0.10.0 release acceptance.
 
 Version, CHANGELOG, README assertions for the skill-rename cycle.
+
+NOTE — the version-pin tests below are kept on the CURRENT release
+version (now 0.11.0) so the file doubles as the live "is the
+release in a shipping state" smoke test. The CHANGELOG / README
+checks below verify the 0.10.0 historical content survives later
+edits (the 0.11.0 cycle didn't touch the skill rename text).
 """
 
 from __future__ import annotations
@@ -11,14 +17,16 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 
 
-def test_pyproject_version_is_0_10_0():
+def test_pyproject_version_is_current():
+    """Current release version per pyproject.toml. Bumped each cycle."""
     text = (REPO / "pyproject.toml").read_text()
-    assert 'version = "0.10.0"' in text
+    assert 'version = "0.11.0"' in text
 
 
-def test_package_version_resolves_to_0_10_0():
+def test_package_version_resolves_to_current():
+    """Installed package metadata matches pyproject.toml."""
     import sage_memory
-    assert sage_memory.__version__ == "0.10.0"
+    assert sage_memory.__version__ == "0.11.0"
 
 
 def test_changelog_has_0_10_0_entry_with_migration_callouts():

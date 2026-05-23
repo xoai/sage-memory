@@ -53,6 +53,10 @@ def main():
         from .cli_install_skills import run_install_skills
         sys.exit(run_install_skills(argv[1:]))
 
+    if argv[0] == "scan-codebase":
+        from .cli_scan_codebase import run_scan_codebase
+        sys.exit(run_scan_codebase(argv[1:]))
+
     if argv[0] == "worker":
         # `worker --status` is the only flag in M3a; `worker --help`
         # prints the worker subcommand's help; bare `worker` shows usage.
@@ -90,6 +94,8 @@ Usage:
   sage-memory reindex --help  Re-embed memories + chunks (full or partial)
   sage-memory install-skills --help
                               Install built-in skills into AI agents
+  sage-memory scan-codebase --help
+                              Index source code via tree-sitter (requires [codebase] extra)
   sage-memory --help          Show this help
 
 The MCP server speaks stdio; launch it from your MCP client config.

@@ -117,6 +117,7 @@ Other patterns:
 | Pin minor (auto-update within 0.10.x) | `["sage-memory~=0.10.0"]` |
 | Stay below the next minor | `["sage-memory>=0.10.0,<0.11.0"]` |
 | With neural embeddings | `["sage-memory[neural]"]` (add `==0.10.0` to pin) |
+| With codebase scan | `["sage-memory[codebase]"]` (add `==0.11.0` to pin) |
 
 **Note on `--refresh`:** without it, `uvx` caches the resolved version per tool (TTL-bounded), so you may keep running an old release after PyPI ships a new one. Adding `--refresh` re-resolves against PyPI on every MCP boot — pairs well with the "latest" workflow at the cost of a small startup network call.
 
@@ -138,6 +139,7 @@ pip install sage-memory                # latest
 pip install sage-memory==0.10.0        # exact pin
 pip install 'sage-memory>=0.10,<0.11'  # range pin
 pip install sage-memory[neural]        # with neural embeddings
+pip install sage-memory[codebase]      # with codebase scan
 ```
 
 Pinning is recommended for production / CI environments where reproducibility matters. For interactive coding-agent use, the latest-by-default setup is usually fine — sage-memory ships fast (we're at minor X.Y bumps every cycle), but releases are additive and backwards-compatible at the MCP wire level.
@@ -205,6 +207,7 @@ Typed directed edges between memories via `sage_memory_link`. Cycle-safe multi-h
 | `sage_memory_list` | Browse with AND tag filtering |
 | `sage_memory_link` | Create/delete typed directed edges |
 | `sage_memory_graph` | Cycle-safe multi-hop traversal |
+| `sage_memory_scan_codebase` | Tree-sitter index of source code (10 languages) — requires `[codebase]` extra |
 
 <details>
 <summary><b>Tool examples</b></summary>
@@ -254,6 +257,29 @@ Typed directed edges between memories via `sage_memory_link`. Cycle-safe multi-h
   "depth": 2
 }
 ```
+
+**Scan codebase (0.11+, requires `[codebase]` extra):**
+```json
+{
+  "path": null,
+  "languages": ["py", "ts"],
+  "include_ignored": false,
+  "limit": 5000,
+  "force": false,
+  "dry_run": false
+}
+```
+Returns `{success: true, files: {scanned, changed, unchanged, with_error_nodes}, symbols: {...}, relations: {imports, calls_resolved, calls_unresolved}, elapsed_ms, ...}`. When the extra isn't installed: `{success: false, message: "scan-codebase requires the [codebase] extra..."}`.
+
+**Discover code via search after a scan:**
+```json
+{
+  "query": "payment retry logic",
+  "filter_tags": ["codebase"],
+  "limit": 5
+}
+```
+Each scanned file becomes a memory tagged `codebase`/`file`/`<lang>`, so `filter_tags: ["codebase"]` surfaces files only; combine with the query to pinpoint the relevant source.
 
 </details>
 
@@ -339,6 +365,67 @@ pip install sage-memory[neural]
 ```
 
 Auto-detected, enables hybrid search (FTS5 + vector via Reciprocal Rank Fusion).
+
+## Optional: Codebase Scan (0.11+)
+
+Pre-index your source tree via tree-sitter so agents can answer cross-file
+queries ("where is X called?", "what imports Y?") in milliseconds without
+re-reading files. **10 languages** supported:
+
+| Language | Extensions | Symbols captured |
+|---|---|---|
+| Python | `.py` | FUNCTION, CLASS, METHOD |
+| TypeScript | `.ts`, `.tsx` | FUNCTION, CLASS, METHOD, INTERFACE, ENUM |
+| JavaScript | `.js`, `.jsx`, `.mjs`, `.cjs` | FUNCTION, CLASS, METHOD |
+| Go | `.go` | FUNCTION, METHOD, STRUCT |
+| Rust | `.rs` | FUNCTION, METHOD (impl), STRUCT, ENUM |
+| Java | `.java` | CLASS, METHOD, INTERFACE, ENUM |
+| Ruby | `.rb` | CLASS, METHOD, FUNCTION |
+| PHP | `.php` | CLASS, METHOD, INTERFACE, FUNCTION |
+| C | `.c`, `.h` (heuristic) | FUNCTION, STRUCT |
+| C++ | `.cpp`, `.cc`, `.cxx`, `.hpp`, `.hxx`, `.h` (heuristic) | CLASS, METHOD, FUNCTION, STRUCT |
+
+Install the extra:
+
+```bash
+pip install 'sage-memory[codebase]'
+```
+
+Run the scan:
+
+```bash
+sage-memory scan-codebase            # walks project root
+sage-memory scan-codebase --dry-run  # count files without writing
+sage-memory scan-codebase --languages py,ts  # subset
+sage-memory scan-codebase --force    # re-parse all (default skips unchanged)
+```
+
+Or invoke the MCP tool from your agent:
+
+```json
+{
+  "name": "sage_memory_scan_codebase",
+  "arguments": {"path": null, "languages": ["py", "ts"]}
+}
+```
+
+Then discover code via search with the `codebase` tag filter:
+
+```json
+{
+  "name": "sage_memory_search",
+  "arguments": {"query": "payment retry", "filter_tags": ["codebase"]}
+}
+```
+
+**Safety guards:**
+- Refuses to scan `$HOME` directly.
+- `--limit` (default 5000) caps file count BEFORE any DB writes.
+- Project-scoped advisory lock prevents concurrent scans on the same project (with 600s stale recovery).
+- Atomic per-file writes — a parse failure on file N leaves files 1..N-1 cleanly indexed.
+- `code_relations` capture `imports` + `calls` with `confidence: resolved | unresolved` so agents can filter for high-signal cross-file links.
+
+**When the extra isn't installed:** the CLI prints an install hint and exits 2; the MCP tool returns `{success: false, message: ...}` so agents can fall back to their own AST extraction via the 0.9.0 `entities` / `relations` payload on `sage_memory_store`.
 
 ## Retrieval Pipeline
 

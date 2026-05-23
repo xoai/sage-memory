@@ -185,7 +185,8 @@ TOOLS = [
                     "description": (
                         "Hard filter (AND logic) — ONLY return memories matching ALL these tags. "
                         "Use for namespace isolation, e.g. filter_tags: [\"self-learning\"] "
-                        "to search only within learnings."
+                        "to search only within learnings, or filter_tags: [\"codebase\"] "
+                        "to surface only source-file memories after sage_memory_scan_codebase."
                     ),
                 },
                 "limit": {
@@ -399,7 +400,112 @@ TOOLS = [
             "required": ["id"],
         },
     ),
+    types.Tool(
+        name="sage_memory_scan_codebase",
+        description=(
+            "Scan local source code with tree-sitter; populates the "
+            "project's code-symbol index. Requires the [codebase] pip "
+            "extra (install with: pip install 'sage-memory[codebase]'). "
+            "Listed unconditionally so agents know to check install "
+            "state via the call's success/false envelope rather than "
+            "tool-list absence."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": (
+                        "Directory to scan (defaults to project root)."
+                    ),
+                },
+                "languages": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Subset of {py,ts,js,go,rs,java,rb,php,c,cpp}. "
+                        "Default: all detected by file extension."
+                    ),
+                },
+                "include_ignored": {"type": "boolean", "default": False},
+                "limit": {"type": "integer", "default": 5000},
+                "force": {"type": "boolean", "default": False},
+                "dry_run": {"type": "boolean", "default": False},
+            },
+        },
+    ),
 ]
+
+
+def scan_codebase(
+    path: str | None = None,
+    languages: list[str] | None = None,
+    include_ignored: bool = False,
+    limit: int = 5000,
+    force: bool = False,
+    dry_run: bool = False,
+) -> dict:
+    """MCP handler for ``sage_memory_scan_codebase``.
+
+    Envelope shape matches the spec rev 2 convention:
+      success → ``{success: true, files: {...}, symbols: {...},
+                    relations: {...}, elapsed_ms: int}``
+      failure → ``{success: false, message: str}`` (rev 2 align)
+    """
+    try:
+        from .codebase import scan
+    except ImportError:
+        return _scan_failure_envelope(
+            "scan-codebase requires the [codebase] extra. "
+            "Install with: pip install 'sage-memory[codebase]' "
+            "(or with uvx, set args to ['sage-memory[codebase]'])."
+        )
+    # Translate scan() exceptions into the rev 2 failure envelope so
+    # agents see a consistent `{success: false, message: str}` shape
+    # regardless of which safety guard tripped.
+    from .codebase import (
+        ScanLimitExceeded, ScanLockHeld, ScanRefused,
+    )
+
+    try:
+        result = scan(
+            root=path,
+            languages=languages,
+            include_ignored=include_ignored,
+            limit=limit,
+            force=force,
+            dry_run=dry_run,
+        )
+    except (ScanLimitExceeded, ScanLockHeld, ScanRefused) as exc:
+        return _scan_failure_envelope(str(exc))
+    except RuntimeError as exc:
+        return _scan_failure_envelope(str(exc))
+
+    return {
+        "success": True,
+        "project_root": result.project_root,
+        "languages_detected": list(result.languages_detected),
+        "files": {
+            "scanned":         result.files_scanned,
+            "changed":         result.files_changed,
+            "unchanged":       result.files_unchanged,
+            "with_error_nodes": result.files_with_error_nodes,
+        },
+        "symbols": dict(result.symbols_by_kind),
+        "relations": {
+            "imports":          result.relations_imports,
+            "calls_resolved":   result.relations_calls_resolved,
+            "calls_unresolved": result.relations_calls_unresolved,
+        },
+        "parse_errors": result.parse_errors,
+        "elapsed_ms":   result.elapsed_ms,
+        "dry_run":      result.dry_run,
+    }
+
+
+def _scan_failure_envelope(message: str) -> dict:
+    return {"success": False, "message": message}
+
 
 # Dict-based dispatch
 HANDLERS = {
@@ -411,6 +517,7 @@ HANDLERS = {
     "sage_memory_list": list_memories,
     "sage_memory_link": link,
     "sage_memory_graph": graph,
+    "sage_memory_scan_codebase": scan_codebase,
 }
 
 

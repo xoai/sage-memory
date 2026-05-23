@@ -2,6 +2,111 @@
 
 All notable changes to sage-memory will be documented in this file.
 
+## [0.11.0] — 2026-05-23
+
+Tree-sitter-backed codebase scanning across **10 languages** —
+Python, TypeScript, TSX, JavaScript, JSX, Go, Rust, Java, Ruby,
+PHP, C, C++. Opt-in via the new `[codebase]` pip extra. Adds the
+`sage-memory scan-codebase` CLI subcommand, the
+`sage_memory_scan_codebase` MCP tool, and a new "Codebase Scan
+(0.11+)" section in the `sage-ontology` skill. End result: an
+agent can ask "where is X called?" or "what imports Y?" and get
+millisecond answers from the pre-indexed graph instead of
+re-reading source files.
+
+### Added
+
+- **`[codebase]` pip extra:** `pip install 'sage-memory[codebase]'`
+  pulls in `tree-sitter-language-pack>=0.7.0,<1.0` (Goldziher /
+  kreuzberg-dev; actively maintained, replaces the unmaintained
+  `tree-sitter-languages`).
+- **`sage-memory scan-codebase` CLI** with full flag surface —
+  positional `path`, `--languages`, `--include-ignored`,
+  `--limit` (default 5000), `--dry-run`, `--force`, `--help`. Exit
+  codes follow spec: 0 (success / no-op), 1 (bad path / home-dir
+  refuse / scan already in progress), 2 (extra not installed),
+  3 (`--limit` exceeded), 4 (catastrophic parse failures).
+- **`sage_memory_scan_codebase` MCP tool** always listed in TOOLS
+  (predictable agent surface). Success envelope:
+  `{success: true, files: {scanned, changed, unchanged,
+  with_error_nodes}, symbols: {...}, relations: {imports,
+  calls_resolved, calls_unresolved}, elapsed_ms, ...}`.
+  Failure envelope: `{success: false, message: str}` aligned to
+  the existing sage-memory MCP error convention.
+- **Migration 009** introduces 4 new SQLite tables:
+  `code_symbols`, `code_relations`, `codebase_scans`,
+  `scan_locks`. Self-referential CASCADE on
+  `code_symbols.parent_id` for the nested-fn / method-on-class
+  hierarchy. UNIQUE discriminators on `line_start` (symbols) and
+  `column_start` (relations) handle sibling-shadow nested
+  functions and same-line duplicate calls.
+- **Each scanned file becomes a memory entry** with title
+  `[file:<lang>] <rel_path>`, content `Source file (<Language>)`,
+  tags `["codebase", "file", "<lang>"]`. Path-salted SHA-256
+  prevents UNIQUE collisions across the dozens of empty
+  `__init__.py` files in a typical Python project.
+- **Symbol kinds extracted:** `FUNCTION`, `CLASS`, `METHOD`,
+  `INTERFACE`, `STRUCT`, `ENUM`. Methods get `parent_id` linked
+  to their containing class/struct symbol.
+- **Relations extracted:** `imports` (per-language target shape —
+  Python `module.name`, TS `./mod.name`, Java/PHP qualified
+  identifiers preserved), `calls` (with
+  `confidence: resolved | unresolved` so agents can filter).
+- **Per-language resolvers (9 total):** Python has the deepest
+  resolution (cross-file imports + `self.X` method calls);
+  TS/JS resolve `./module` relative imports; Go/Java use the
+  same-directory-equals-same-package convention; Rust resolves
+  `foo::bar()` via the sibling `foo.rs` / `foo/mod.rs`
+  convention; Ruby/PHP/C/C++ resolve same-file only.
+- **`sage_memory_search(filter_tags: ["codebase"])`** is the
+  canonical discovery path after a scan. Hint added to the MCP
+  tool's `filter_tags` description.
+- **`sage-ontology` skill extended** with a new "## Codebase
+  Scan (0.11+)" section explaining the install-detect gate +
+  search workflow + agent fallback when the extra isn't
+  installed.
+
+### Safety guards
+
+- **Project-scoped advisory lock** in `scan_locks` prevents
+  concurrent scans on the same project — second invocation
+  fast-fails with "scan already in progress" rather than
+  blocking. Different projects can scan in parallel.
+- **600s stale-row recovery** ensures a crashed prior scan
+  doesn't permanently lock the project (the `finally`-block
+  release is the primary mechanism; recovery is the backstop).
+- **Home-directory refusal:** `Path(root).resolve() ==
+  Path.home().resolve()` exits 1 — scanning `$HOME` is a
+  uniformly bad idea.
+- **Pre-walk `--limit` enforcement:** the file count is checked
+  BEFORE any DB writes happen, so an over-limit scan leaves zero
+  side effects.
+- **Atomic per-file transaction** (`with conn:`): a parse failure
+  on file N leaves files 1..N-1 cleanly indexed; on success the
+  block commits memory upsert + symbol DELETE + symbol INSERT +
+  `codebase_scans` upsert as one unit.
+
+### Unchanged
+
+- Storage / retrieval / search / graph machinery — untouched.
+- 8 pre-existing MCP tools (`sage_memory_store` etc.) — unchanged.
+- 3 pre-existing skills (`sage-memory`, `sage-ontology`,
+  `sage-self-learning`) — `sage-ontology` got the new section but
+  no other content changed.
+- No breaking changes for users who don't install `[codebase]`.
+
+### Upgrade notes (0.10.0 → 0.11.0)
+
+```bash
+pip install -U 'sage-memory[codebase]'   # add the new extra
+sage-memory scan-codebase                # index the current project
+sage-memory install-skills <agent> -y    # refresh the ontology skill text
+```
+
+The CLI subcommand and MCP tool are no-ops without the
+`[codebase]` extra installed — they print/return the install hint
+and exit cleanly.
+
 ## [0.10.0] — 2026-05-20
 
 Skill identifier rename for collision-free install. Source folders
