@@ -2,6 +2,80 @@
 
 All notable changes to sage-memory will be documented in this file.
 
+## [0.11.1] — 2026-05-24
+
+Positioning refresh — name three differentiators that make sage
+different from mem0 (coding-assistant memory, experience layer,
+skills-as-intelligence) without narrowing the audience. sage
+remains memory for ANY AI agent that needs persistent context;
+the three wedges describe capabilities, not exclusive use cases.
+Triggered by a sub-agent comparative review with mem0 (see
+`.sage/docs/research/evaluate-mem0.md`).
+
+**No behavior change.** All MCP tools, CLI subcommands, schema,
+retrieval pipeline, embedder cascade, entity extraction — all
+identical to 0.11.0. Wire format, exit codes, and skill install
+paths preserved. This is a docs-and-descriptions patch.
+
+### Changed
+
+- **`pyproject.toml description`** rewritten to "Local MCP memory
+  for AI agents — graph-native, learns from mistakes, no LLM
+  required" (was: "Ultrafast local MCP memory for LLMs —
+  project-aware, zero-config"). Audience phrasing kept broad
+  ("AI agents") with three differentiators named. Visible on
+  PyPI, GitHub repo card, and `pip show sage-memory`.
+- **`README.md`** restructured:
+  - New comparison-disclaimer blockquote: "sage and mem0 are
+    both memory for AI agents — different philosophies." Frames
+    choice as infrastructure trade-off, not audience match.
+  - New "Where sage fits" section with "Where it shines" +
+    "Where you might prefer another tool" lists. Both lists are
+    infrastructure-driven (local-first / code-aware /
+    learning-loops / graph-reasoning vs hosted-SaaS /
+    conversation-extraction / cross-machine sync). Honest link
+    to mem0 in the not-as-fit list.
+  - "Optional: Codebase Scan (0.11+)" section promoted from its
+    previous position (after Retrieval Pipeline) to immediately
+    after Setup — it's the latest big feature and the strongest
+    proof of the "coding-assistant memory" differentiator.
+  - Highlights reordered: three differentiator bullets
+    (coding-assistant memory, experience layer,
+    skills-as-intelligence) lead the bullet list.
+- **5 MCP tool descriptions** (`sage_memory_store`,
+  `sage_memory_search`, `sage_memory_link`, `sage_memory_graph`,
+  `sage_memory_scan_codebase`) each gain a single "Best fit:" /
+  "After running scan-codebase" sentence appended; existing text
+  preserved. Examples broadened to cover use cases beyond coding.
+- **3 skill `description:` front-matters** (`sage-memory`,
+  `sage-ontology`, `sage-self-learning`) refreshed to lead with
+  the broader "AI agents" framing in the first 1-2 sentences.
+  Activation triggers preserved verbatim; install paths
+  unchanged.
+- **`evaluate-mem0.md` §10**: added a one-paragraph callout
+  noting the audience correction so future agents reading the
+  eval doc don't repeat the over-narrow framing the original
+  doc suggested.
+
+### Unchanged
+
+- Wire format, exit codes, return envelopes — identical to 0.11.0.
+- Skill `name:` fields — preserved per 0.10.0 collision-free
+  rename contract.
+- Schema (migration 009 still the head) — identical.
+- Audience scope — sage continues to serve any AI agent that
+  needs persistent memory; the three differentiators do NOT
+  restrict who can use it.
+
+### Upgrade notes (0.11.0 → 0.11.1)
+
+```bash
+pip install -U sage-memory    # picks up the new docs + descriptions
+```
+
+No re-install of skills required (body content unchanged). MCP
+agents will see updated tool descriptions on next tools/list call.
+
 ## [0.11.0] — 2026-05-23
 
 Tree-sitter-backed codebase scanning across **10 languages** —

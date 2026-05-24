@@ -1,12 +1,14 @@
 ---
 name: sage-memory
 description: >
-  Integrates sage-memory into Sage workflows. Teaches the agent when to
-  remember (store findings during work), when to recall (search memory at
-  session start and task start), and how to learn (structured knowledge
-  capture via sage learn). Use when the user mentions memory, remember,
-  recall, learn, capture knowledge, onboard to codebase, or when starting
-  any session where sage-memory MCP tools are available.
+  Captures and recalls durable context for AI agents — architecture
+  decisions, user preferences, debugging insights, conventions, anything
+  worth remembering across sessions. Teaches the agent when to remember
+  (store findings during work), when to recall (search memory at session
+  start and task start), and how to learn (structured knowledge capture
+  via sage learn). Use when the user mentions memory, remember, recall,
+  learn, capture knowledge, onboard to codebase, or when starting any
+  session where sage-memory MCP tools are available.
 version: "1.2.0"
 type: process
 ---

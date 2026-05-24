@@ -1,7 +1,7 @@
 [project]
 name = "sage-memory"
-version = "0.11.0"
-description = "Ultrafast local MCP memory for LLMs — project-aware, zero-config"
+version = "0.11.1"
+description = "Local MCP memory for AI agents — graph-native, learns from mistakes, no LLM required"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"

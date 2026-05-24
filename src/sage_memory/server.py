@@ -77,7 +77,10 @@ TOOLS = [
             "0.9+: pass optional `entities` and `relations` to populate "
             "the knowledge graph inline (no LLM API key needed for "
             "sage-memory). Response includes `suggested_links` listing "
-            "existing memories whose content overlaps."
+            "existing memories whose content overlaps. "
+            "Best fit: durable context — architecture decisions, user "
+            "preferences, debugging insights, conventions, prevention "
+            "rules. Anything an agent benefits from recalling next session."
         ),
         inputSchema={
             "type": "object",
@@ -167,7 +170,10 @@ TOOLS = [
             "Searches this project's memory and global memory, "
             "with project results ranked higher. "
             "Use before starting work to recall relevant context, "
-            "architecture decisions, or past solutions."
+            "architecture decisions, or past solutions. "
+            "After running scan-codebase, combine "
+            "filter_tags: ['codebase'] with code-specific queries to "
+            "discover files by topic."
         ),
         inputSchema={
             "type": "object",
@@ -341,7 +347,10 @@ TOOLS = [
             "Use this to express: dependencies (A depends_on B), containment "
             "(project has_task task), ownership (task assigned_to person), "
             "blocking (task blocks task), or any directed relationship. "
-            "Edges are automatically cleaned up when either memory is deleted."
+            "Edges are automatically cleaned up when either memory is deleted. "
+            "Best fit: dependency graphs (A depends on B), supersession "
+            "chains (new memory replaces an outdated one), task→entity "
+            "associations, learning→affected-object pointers."
         ),
         inputSchema={
             "type": "object",
@@ -374,7 +383,10 @@ TOOLS = [
             "Traverse relationships from a starting memory. Returns connected "
             "memories and edges within the specified depth. Use to explore: "
             "dependency chains, project task trees, blocking relationships, "
-            "or any graph structure built with sage_memory_link."
+            "or any graph structure built with sage_memory_link. "
+            "Best fit: cross-entity impact analysis ('what depends on X?'), "
+            "tracing supersession chains, surfacing all learnings touching "
+            "a given module/topic."
         ),
         inputSchema={
             "type": "object",
@@ -408,7 +420,9 @@ TOOLS = [
             "extra (install with: pip install 'sage-memory[codebase]'). "
             "Listed unconditionally so agents know to check install "
             "state via the call's success/false envelope rather than "
-            "tool-list absence."
+            "tool-list absence. "
+            "Best fit: code intelligence without sending source to a "
+            "SaaS — keeps proprietary code local."
         ),
         inputSchema={
             "type": "object",

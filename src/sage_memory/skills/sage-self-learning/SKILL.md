@@ -1,15 +1,17 @@
 ---
 name: sage-self-learning
 description: >
-  Captures agent mistakes, corrections, and discovered gotchas so they are
-  not repeated. Use when: (1) a command or operation fails unexpectedly,
-  (2) the user corrects the agent, (3) the agent discovers non-obvious
-  behavior through debugging, (4) an API or tool behaves differently than
+  Detects mistakes, stores prevention rules, promotes them across scope —
+  the 'experience' layer for any AI agent that recurringly hits the same
+  bugs, miscommunications, or wrong-tool choices across sessions. Use
+  when: (1) a command or operation fails unexpectedly, (2) the user
+  corrects the agent, (3) the agent discovers non-obvious behavior
+  through debugging, (4) an API or tool behaves differently than
   expected, (5) a better approach is found for a recurring task. Also
   searches past learnings before starting tasks to avoid known pitfalls.
   Activate alongside the sage-memory skill — they share the same MCP
-  backend but serve different purposes (sage-memory = codebase
-  knowledge, sage-self-learning = agent mistakes and gotchas).
+  backend but serve different purposes (sage-memory = durable context,
+  sage-self-learning = agent mistakes and gotchas).
 version: "1.2.0"
 type: process
 ---

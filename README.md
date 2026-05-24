@@ -41,6 +41,44 @@ One search returns all three. The agent knows how things work, how they connect,
           → knowledge + structure + experience
 ```
 
+> **sage and mem0 are both memory for AI agents — different philosophies.**
+> mem0 is hosted-SaaS-first, LLM-driven extraction from conversation turns.
+> sage is local-first, skill-driven, graph-native, optionally zero-LLM.
+> Pick based on your infra constraints. See
+> [evaluate-mem0.md](.sage/docs/research/evaluate-mem0.md) for the full
+> side-by-side analysis.
+
+## Where sage fits
+
+sage works for any AI agent that needs persistent memory.
+**Where it shines:**
+
+- **Local-first deployments** — proprietary data can't go to a
+  hosted SaaS; everything stays on your machine.
+- **Code-aware agents** — tree-sitter codebase scan across 10
+  languages indexes functions/classes/imports/calls (0.11+).
+- **Learning-from-mistakes loops** — the self-learning skill turns
+  every correction into a prevention rule, so agents don't repeat
+  the same bugs across sessions.
+- **Graph-style reasoning** — typed edges + cycle-safe multi-hop
+  traversal handle dependency-style queries ("what depends on X?")
+  that pure vector search can't.
+
+**Where you might prefer another tool:**
+
+- **Hosted SaaS with no infra** — sage is local-first by design;
+  managed-memory services like
+  [mem0](https://github.com/mem0ai/mem0) handle their own hosting.
+- **Conversation-turn auto-extraction** — mem0's
+  `memory.add(messages=...)` extracts facts from raw conversation
+  via an LLM. sage requires the agent to call `sage_memory_store`
+  explicitly (with optional 0.9.0 agent-driven entities/relations).
+- **Cross-machine sync out of the box** — sage's per-project DBs
+  live in `.sage-memory/`; sync is a user concern (Git, syncthing,
+  etc.) not a built-in.
+
+Both tools are valid; pick based on your infrastructure.
+
 ### Why sage-memory
 
 - **The agent gets better every session.** Mistakes become prevention rules. Prevention rules compound across projects. The agent develops judgment, not just a bigger database.
@@ -49,6 +87,9 @@ One search returns all three. The agent knows how things work, how they connect,
 
 ### Highlights
 
+- **Coding-assistant memory** — tree-sitter codebase scan across 10 languages indexes functions, classes, imports, and calls; agents answer cross-file queries in milliseconds without re-reading source. *(0.11+, opt-in via `[codebase]` extra)*
+- **Experience layer** — every correction becomes a prevention rule; rules promote from context → personal → team scope. The same mistakes don't recur across sessions.
+- **Skills-as-intelligence** — improve the agent by editing markdown, not shipping code. 3 bundled skills + 5 supported agents (`sage-memory install-skills <agent>`).
 - **97.2% recall@5 on LongMemEval-S, zero API cost** (pure FTS5+RRF). Add an embedder key and it goes to **98.6%** — beating gbrain (0.976) at ~$0.50 per 500q. [Full report](evaluation/longmemeval/REPORT.md) · [Reproducer](evaluation/longmemeval/REPRODUCER.md)
 - **91% recall** on natural language queries — proven on 4 real codebases (340K lines)
 - **Sub-3ms search**, sub-0.3ms graph traversal, ~1,000 writes/sec
@@ -164,6 +205,67 @@ Use `"command": "sage-memory"` instead of `uvx` in your MCP config.
 For neural embeddings: `pip install sage-memory[neural]`
 
 </details>
+
+## Optional: Codebase Scan (0.11+)
+
+Pre-index your source tree via tree-sitter so agents can answer cross-file
+queries ("where is X called?", "what imports Y?") in milliseconds without
+re-reading files. **10 languages** supported:
+
+| Language | Extensions | Symbols captured |
+|---|---|---|
+| Python | `.py` | FUNCTION, CLASS, METHOD |
+| TypeScript | `.ts`, `.tsx` | FUNCTION, CLASS, METHOD, INTERFACE, ENUM |
+| JavaScript | `.js`, `.jsx`, `.mjs`, `.cjs` | FUNCTION, CLASS, METHOD |
+| Go | `.go` | FUNCTION, METHOD, STRUCT |
+| Rust | `.rs` | FUNCTION, METHOD (impl), STRUCT, ENUM |
+| Java | `.java` | CLASS, METHOD, INTERFACE, ENUM |
+| Ruby | `.rb` | CLASS, METHOD, FUNCTION |
+| PHP | `.php` | CLASS, METHOD, INTERFACE, FUNCTION |
+| C | `.c`, `.h` (heuristic) | FUNCTION, STRUCT |
+| C++ | `.cpp`, `.cc`, `.cxx`, `.hpp`, `.hxx`, `.h` (heuristic) | CLASS, METHOD, FUNCTION, STRUCT |
+
+Install the extra:
+
+```bash
+pip install 'sage-memory[codebase]'
+```
+
+Run the scan:
+
+```bash
+sage-memory scan-codebase            # walks project root
+sage-memory scan-codebase --dry-run  # count files without writing
+sage-memory scan-codebase --languages py,ts  # subset
+sage-memory scan-codebase --force    # re-parse all (default skips unchanged)
+```
+
+Or invoke the MCP tool from your agent:
+
+```json
+{
+  "name": "sage_memory_scan_codebase",
+  "arguments": {"path": null, "languages": ["py", "ts"]}
+}
+```
+
+Then discover code via search with the `codebase` tag filter:
+
+```json
+{
+  "name": "sage_memory_search",
+  "arguments": {"query": "payment retry", "filter_tags": ["codebase"]}
+}
+```
+
+**Safety guards:**
+- Refuses to scan `$HOME` directly.
+- `--limit` (default 5000) caps file count BEFORE any DB writes.
+- Project-scoped advisory lock prevents concurrent scans on the same project (with 600s stale recovery).
+- Atomic per-file writes — a parse failure on file N leaves files 1..N-1 cleanly indexed.
+- `code_relations` capture `imports` + `calls` with `confidence: resolved | unresolved` so agents can filter for high-signal cross-file links.
+
+**When the extra isn't installed:** the CLI prints an install hint and exits 2; the MCP tool returns `{success: false, message: ...}` so agents can fall back to their own AST extraction via the 0.9.0 `entities` / `relations` payload on `sage_memory_store`.
 
 ## How It Works
 
@@ -365,67 +467,6 @@ pip install sage-memory[neural]
 ```
 
 Auto-detected, enables hybrid search (FTS5 + vector via Reciprocal Rank Fusion).
-
-## Optional: Codebase Scan (0.11+)
-
-Pre-index your source tree via tree-sitter so agents can answer cross-file
-queries ("where is X called?", "what imports Y?") in milliseconds without
-re-reading files. **10 languages** supported:
-
-| Language | Extensions | Symbols captured |
-|---|---|---|
-| Python | `.py` | FUNCTION, CLASS, METHOD |
-| TypeScript | `.ts`, `.tsx` | FUNCTION, CLASS, METHOD, INTERFACE, ENUM |
-| JavaScript | `.js`, `.jsx`, `.mjs`, `.cjs` | FUNCTION, CLASS, METHOD |
-| Go | `.go` | FUNCTION, METHOD, STRUCT |
-| Rust | `.rs` | FUNCTION, METHOD (impl), STRUCT, ENUM |
-| Java | `.java` | CLASS, METHOD, INTERFACE, ENUM |
-| Ruby | `.rb` | CLASS, METHOD, FUNCTION |
-| PHP | `.php` | CLASS, METHOD, INTERFACE, FUNCTION |
-| C | `.c`, `.h` (heuristic) | FUNCTION, STRUCT |
-| C++ | `.cpp`, `.cc`, `.cxx`, `.hpp`, `.hxx`, `.h` (heuristic) | CLASS, METHOD, FUNCTION, STRUCT |
-
-Install the extra:
-
-```bash
-pip install 'sage-memory[codebase]'
-```
-
-Run the scan:
-
-```bash
-sage-memory scan-codebase            # walks project root
-sage-memory scan-codebase --dry-run  # count files without writing
-sage-memory scan-codebase --languages py,ts  # subset
-sage-memory scan-codebase --force    # re-parse all (default skips unchanged)
-```
-
-Or invoke the MCP tool from your agent:
-
-```json
-{
-  "name": "sage_memory_scan_codebase",
-  "arguments": {"path": null, "languages": ["py", "ts"]}
-}
-```
-
-Then discover code via search with the `codebase` tag filter:
-
-```json
-{
-  "name": "sage_memory_search",
-  "arguments": {"query": "payment retry", "filter_tags": ["codebase"]}
-}
-```
-
-**Safety guards:**
-- Refuses to scan `$HOME` directly.
-- `--limit` (default 5000) caps file count BEFORE any DB writes.
-- Project-scoped advisory lock prevents concurrent scans on the same project (with 600s stale recovery).
-- Atomic per-file writes — a parse failure on file N leaves files 1..N-1 cleanly indexed.
-- `code_relations` capture `imports` + `calls` with `confidence: resolved | unresolved` so agents can filter for high-signal cross-file links.
-
-**When the extra isn't installed:** the CLI prints an install hint and exits 2; the MCP tool returns `{success: false, message: ...}` so agents can fall back to their own AST extraction via the 0.9.0 `entities` / `relations` payload on `sage_memory_store`.
 
 ## Retrieval Pipeline
 
