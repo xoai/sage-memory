@@ -20,6 +20,12 @@ def link(*, source_id: str, target_id: str, relation: str,
          properties: dict | None = None, delete: bool = False,
          scope: str = "project") -> dict:
     """Create or delete a typed edge between two memories."""
+    # M3.2: hub-ownership write guard (ADR-009 rev 2). Lazy import keeps
+    # graph.py importable when the hub package is absent or unloaded.
+    from .hub import ownership as _hub_ownership
+    blocked = _hub_ownership.block_envelope_if_disabled(scope)
+    if blocked is not None:
+        return blocked
     db = get_db(scope)
 
     if delete:

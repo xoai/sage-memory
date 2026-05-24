@@ -103,45 +103,47 @@ def test_bootstrap_set_embedder_makes_get_embedder_return_it(
 
 def test_bootstrap_server_run_wires_resolver(monkeypatch):
     """Smoke test that server.run() calls resolve() + set_embedder()
-    before serving. We patch stdio_server to short-circuit the actual
-    serve loop so we just exercise the bootstrap code path."""
+    before serving.
+
+    Post-M1.1b (cycle 20260524-team-mcp-transports), the bootstrap
+    moved from ``server.run()`` into
+    ``server_fastmcp.server_lifespan``; ``server.run()`` is now a
+    thin wrapper that builds the FastMCP app and awaits
+    ``run_stdio_async``. The spy targets the lifespan's import-bound
+    ``set_embedder`` name, and the short-circuit replaces FastMCP's
+    stdio entry instead of the old ``stdio_server`` context manager.
+    """
     _scrub(monkeypatch)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-bootstrap")
     _reset_singleton()
 
     import asyncio
-    from contextlib import asynccontextmanager
 
-    # Track what set_embedder is called with
+    # Track what set_embedder is called with. The lifespan does
+    # `from .embedder import set_embedder`, so the patch must target
+    # the name bound in server_fastmcp (not embedder or server).
     seen = []
-    import sage_memory.server as srv_mod
-    real_set = srv_mod.set_embedder
+    import sage_memory.server_fastmcp as fmcp_mod
+    real_set = fmcp_mod.set_embedder
 
     def _spy_set(embedder):
         seen.append(type(embedder).__name__)
         real_set(embedder)
 
-    monkeypatch.setattr(srv_mod, "set_embedder", _spy_set)
+    monkeypatch.setattr(fmcp_mod, "set_embedder", _spy_set)
 
-    # Short-circuit the stdio_server context manager so run() exits
-    # immediately after bootstrap.
-    @asynccontextmanager
-    async def _fake_stdio():
-        raise SystemExit("test stub — exit before serve loop")
-        yield  # never reached
+    # Short-circuit FastMCP's stdio entry: enter the lifespan (which
+    # is what bootstrap-tests really care about), then exit before
+    # the actual MCP request loop starts.
+    from mcp.server.fastmcp import FastMCP
 
-    monkeypatch.setattr(srv_mod, "stdio_server", _fake_stdio)
+    async def _fake_run_stdio_async(self):
+        async with fmcp_mod.server_lifespan(self):
+            raise SystemExit("test stub — exit before serve loop")
 
-    # Also stub create_server (we don't need a real Server instance)
-    class _StubServer:
-        def create_initialization_options(self):
-            return None
-        async def run(self, *a, **kw):
-            return None
+    monkeypatch.setattr(FastMCP, "run_stdio_async", _fake_run_stdio_async)
 
-    monkeypatch.setattr(srv_mod, "create_server", lambda: _StubServer())
-
-    # Run and expect SystemExit from our stubbed stdio
+    import sage_memory.server as srv_mod
     with pytest.raises(SystemExit):
         asyncio.run(srv_mod.run())
 

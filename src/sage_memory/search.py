@@ -38,6 +38,37 @@ logger = logging.getLogger("sage-memory")
 # RRF constant
 _RRF_K = 60
 
+
+def rrf_fuse(
+    ranked_lists: list[list],
+    weights: list[float] | None = None,
+    k: int = _RRF_K,
+) -> dict:
+    """Reciprocal-rank fusion of N ranked lists of hashable items.
+
+    For each item, the RRF score sums ``weight / (k + rank)`` across
+    the lists where the item appears (rank is 1-indexed position).
+    Items absent from a given list contribute zero from that list.
+
+    Used by ``search.search()`` for cross-channel fusion (FTS + vector +
+    graph) and by ``hub.search.fan_out_search()`` for cross-project
+    fusion. Exposed as a top-level helper so the hub-search path is
+    the single source of truth for the RRF algorithm (auto-review
+    MINOR-substantive #6 — "do not reinvent").
+    """
+    if weights is None:
+        weights = [1.0] * len(ranked_lists)
+    if len(weights) != len(ranked_lists):
+        raise ValueError(
+            f"rrf_fuse: weights length {len(weights)} doesn't match "
+            f"ranked_lists length {len(ranked_lists)}"
+        )
+    scored: dict = {}
+    for items, w in zip(ranked_lists, weights):
+        for rank, item in enumerate(items, start=1):
+            scored[item] = scored.get(item, 0.0) + w / (k + rank)
+    return scored
+
 # Below this, skip vec search entirely
 _VEC_QUALITY_THRESHOLD = 0.6
 
@@ -424,6 +455,11 @@ def search(*, query: str, scope: str = "project",
         if len(results) >= limit:
             break
 
+    # 0.12.0: annotate results with `superseded_by` per source DB.
+    # Build a label→conn lookup from the existing dbs list-of-tuples;
+    # the original `dbs` stays intact for `_flush_access` below.
+    _annotate_superseded(results, dbs_by_label=dict(dbs))
+
     # Flush access buffer if needed
     _flush_access(dbs)
 
@@ -434,6 +470,60 @@ def search(*, query: str, scope: str = "project",
         "results": results, "total": len(all_candidates),
         "query": query, "timings": _timings,
     }
+
+
+def _annotate_superseded(results, *, dbs_by_label):
+    """Add `superseded_by: <newer_id>` to results that have an
+    incoming `supersedes` edge.
+
+    Groups results by their existing `source` field (already tagged
+    per-result at line 418) and runs one batched query per source DB.
+    Cross-DB supersedes is NOT followed — `edges` is per-DB by design.
+
+    The most-recent edge wins per target (`ORDER BY created_at DESC,
+    rowid DESC` — secondary `rowid DESC` tie-break survives identical
+    `time.time()` timestamps from same-tick `link()` calls. SQLite's
+    `rowid` is monotonic per-table, so the later INSERT always wins
+    a tie; `edges.id` would not work as a tie-break because it's a
+    random UUID hex from `graph.link()`).
+    """
+    if not results:
+        return
+    import sqlite3 as _sqlite3
+    by_source: dict[str, list[dict]] = {}
+    for r in results:
+        by_source.setdefault(r.get("source", ""), []).append(r)
+    for db_label, group in by_source.items():
+        db = dbs_by_label.get(db_label)
+        if db is None:
+            continue  # defensive — shouldn't happen
+        target_ids = [r["id"] for r in group]
+        ph = ",".join("?" for _ in target_ids)
+        try:
+            rows = db.execute(
+                f"""SELECT target_id, source_id
+                    FROM edges
+                    WHERE relation = 'supersedes'
+                      AND target_id IN ({ph})
+                    ORDER BY created_at DESC, rowid DESC""",
+                target_ids,
+            ).fetchall()
+        except _sqlite3.Error:
+            # `edges` table may not exist on stripped DBs; never
+            # break search over an annotation lookup.
+            continue
+        # First row per target_id wins (rows already ordered by
+        # most-recent → setdefault preserves the first hit).
+        by_target: dict[str, str] = {}
+        for r in rows:
+            by_target.setdefault(r["target_id"], r["source_id"])
+        # The query intentionally does NOT filter on the source
+        # memory's status — `superseded_by` is just a pointer; the
+        # agent dereferences if it cares. Orphan rows can't surface
+        # because the edges→memories FK is `ON DELETE CASCADE`.
+        for result in group:
+            if result["id"] in by_target:
+                result["superseded_by"] = by_target[result["id"]]
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

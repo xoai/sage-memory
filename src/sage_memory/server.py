@@ -19,19 +19,14 @@ import json
 import logging
 
 from mcp.server import Server
-from mcp.server.stdio import stdio_server
 import mcp.types as types
 
 from .store import store, update, delete, list_memories
-from .search import search, flush_all_access
+from .search import search
 from .graph import link, graph
-from .db import get_project_name, close_all, set_project, get_db
-from .embedder import (
-    get_embedder, set_embedder, resolve, DimMismatchRefuseError,
-    LocalEmbedder,
-)
+from .db import get_project_name, set_project, get_db
+from .embedder import get_embedder
 from . import llm
-from .worker import Worker
 
 logger = logging.getLogger("sage-memory")
 
@@ -78,6 +73,12 @@ TOOLS = [
             "the knowledge graph inline (no LLM API key needed for "
             "sage-memory). Response includes `suggested_links` listing "
             "existing memories whose content overlaps. "
+            "0.12.0+: `suggested_links` entries may carry "
+            "`confidence: \"near_duplicate\"` and `similarity` when the "
+            "new memory is semantically near a stored one (cosine ≥ 0.95). "
+            "When this signals fires, consider linking via "
+            "`relation: \"supersedes\"` to mark the older memory as "
+            "superseded by the newer paraphrase. "
             "Best fit: durable context — architecture decisions, user "
             "preferences, debugging insights, conventions, prevention "
             "rules. Anything an agent benefits from recalling next session."
@@ -173,7 +174,12 @@ TOOLS = [
             "architecture decisions, or past solutions. "
             "After running scan-codebase, combine "
             "filter_tags: ['codebase'] with code-specific queries to "
-            "discover files by topic."
+            "discover files by topic. "
+            "0.12.0+: result entries may carry `superseded_by: <id>` "
+            "when a newer memory has been linked via "
+            "`relation: \"supersedes\"`. Results are NOT filtered or "
+            "down-ranked — the agent decides whether to prefer the "
+            "newer memory."
         ),
         inputSchema={
             "type": "object",
@@ -359,7 +365,14 @@ TOOLS = [
                 "target_id": {"type": "string", "description": "ID of the target memory (edge points here)."},
                 "relation": {
                     "type": "string",
-                    "description": "Relationship type: depends_on, has_task, assigned_to, blocks, part_of, contains, relates_to, or custom.",
+                    "description": (
+                        "Relationship type. Common relations: depends_on, "
+                        "has_task, assigned_to, blocks, part_of, contains, "
+                        "relates_to, supersedes (newer memory replaces an "
+                        "older paraphrase — 0.12.0+, see sage_memory_store's "
+                        "`confidence: \"near_duplicate\"` signal), or any "
+                        "custom string."
+                    ),
                 },
                 "properties": {
                     "type": "object",
@@ -654,63 +667,14 @@ def _resolve_db_path() -> str | None:
 
 
 async def run() -> None:
-    server = create_server()
-    worker: Worker | None = None
+    """Thin wrapper around the FastMCP factory's stdio entry.
 
-    # M5 follow-up — wire ADR-005 resolver at startup so an API key in
-    # env actually activates the matching hosted embedder. Without this,
-    # get_embedder() defaults to LocalEmbedder regardless of keys.
-    try:
-        conn = get_db()
-        row = conn.execute(
-            "SELECT value FROM corpus_meta WHERE key = 'vec_dim'"
-        ).fetchone()
-        corpus_dim = int(row["value"]) if row else 384
-        embedder = resolve(corpus_dim)
-        set_embedder(embedder)
-        logger.info(
-            "embedder: %s active (dim=%d, quality=%.2f)",
-            type(embedder).__name__, embedder.dim, embedder.quality,
-        )
-    except DimMismatchRefuseError as e:
-        # Spec-mandated refusal: corpus_dim doesn't match any available
-        # tier. Don't silently down-project. Log and re-raise so the
-        # operator sees the failure and runs `sage-memory reindex`.
-        logger.error(
-            "embedder: refusing to start — %s. "
-            "Run: sage-memory reindex --re-embed --embedder <name>",
-            e,
-        )
-        raise
-    except Exception:
-        logger.exception(
-            "embedder: resolver bootstrap failed; falling back to "
-            "LocalEmbedder (384d, quality 0.45)"
-        )
-        set_embedder(LocalEmbedder())
-
-    # Try to start the worker if a project is active and conditions
-    # are met. A None-project session is valid (no worker needed).
-    try:
-        db_path = _resolve_db_path()
-        if db_path:
-            conn = get_db()
-            if _needs_worker(conn):
-                worker = Worker(db_path)
-                worker.start()
-    except Exception:
-        logger.exception(
-            "worker: startup probe failed; continuing without worker"
-        )
-        worker = None
-
-    try:
-        async with stdio_server() as (read, write):
-            await server.run(
-                read, write, server.create_initialization_options(),
-            )
-    finally:
-        if worker is not None:
-            worker.stop()
-        flush_all_access()
-        close_all()
+    M1.1b extracted the embedder bootstrap + worker probe + cleanup
+    into ``server_fastmcp.server_lifespan`` (wired by ``build_mcp_app``),
+    so this function is now a one-liner over FastMCP's stdio transport.
+    The arg-less ``sage-memory`` entry point still routes here for
+    backwards compatibility with existing MCP client configurations.
+    """
+    from .server_fastmcp import build_mcp_app
+    mcp = build_mcp_app()
+    await mcp.run_stdio_async()

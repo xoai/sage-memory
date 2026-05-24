@@ -75,6 +75,30 @@ def get_project_db_path(project_root: Path) -> Path:
     return project_root / SAGE_DIR / DB_NAME
 
 
+def get_db_path(conn: sqlite3.Connection) -> Path:
+    """Resolve which DB file a live ``sqlite3.Connection`` is bound to.
+
+    Implements the M3.0 helper that ADR-009's per-DB ownership check
+    (M3.2) depends on. Uses SQLite's ``PRAGMA database_list`` to read
+    the path that this exact connection was opened against — works
+    regardless of whether the connection went through ``_open()``'s
+    cache or was constructed directly (e.g., the hub.search read-only
+    URI form).
+
+    Returns the resolved absolute path. Raises ``RuntimeError`` if
+    the connection is closed or pointing at an in-memory DB.
+    """
+    rows = conn.execute("PRAGMA database_list").fetchall()
+    if not rows:
+        raise RuntimeError("connection has no main database")
+    # PRAGMA database_list returns (seq, name, file); main is seq=0.
+    main = rows[0]
+    file_path = main[2] if not isinstance(main, sqlite3.Row) else main["file"]
+    if not file_path:
+        raise RuntimeError("connection has no on-disk database (in-memory?)")
+    return Path(file_path).resolve()
+
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Connection management
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

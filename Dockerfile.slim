@@ -1,0 +1,38 @@
+# Dockerfile.slim — sage-memory MCP server, slim variant (M4.4).
+#
+# Python 3.12 slim base. Excludes the [neural] extra (fastembed
+# + ONNX runtime + bge-small weights) — first-store warmth pays the
+# download cost on the user's host. Target image size: ≤ 60MB.
+#
+# Per ADR-009 §"Scope clarification" the container exposes the MCP
+# server on 3333; reverse-proxy auth is required for non-localhost
+# deployments (Docker `-p 3333:3333` publishes 0.0.0.0 on the host
+# regardless of internal --host). See docs/guides/self-hosted-server.md.
+
+FROM python:3.12-slim
+
+# Minimum runtime deps for sage-memory's MCP server. sqlite3 ships
+# with Python; we only need to install the sage_memory package itself.
+WORKDIR /app
+COPY pyproject.toml README.md /app/
+COPY src/ /app/src/
+
+RUN pip install --no-cache-dir --upgrade pip \
+ && pip install --no-cache-dir /app \
+ && rm -rf /root/.cache/pip /tmp/*
+
+# State volume — mount this in production:
+#   docker run -v $HOME/.sage-memory:/root/.sage-memory ...
+# So the global DB + auth.json + hub config survive container restarts.
+VOLUME ["/root/.sage-memory"]
+
+# Default port matches ADR-007 + ADR-008. Override with --port at run time.
+EXPOSE 3333
+
+STOPSIGNAL SIGTERM
+
+# Default entry: SSE transport on 0.0.0.0 inside the container.
+# Operators who only need localhost should set --host 127.0.0.1
+# AND skip Docker's port publishing.
+ENTRYPOINT ["sage-memory"]
+CMD ["serve", "--transport", "sse", "--host", "0.0.0.0", "--port", "3333"]

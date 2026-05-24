@@ -1,0 +1,41 @@
+# Dockerfile.full — sage-memory MCP server with FastEmbedder pre-bundled (M4.5).
+#
+# Same base as Dockerfile.slim BUT installs sage-memory[neural]
+# and warms the bge-small-en-v1.5 weights at build time so first-store
+# is instant (no download). Target image size: ≤ 350MB.
+#
+# Use this image when running on hardware that should not download
+# weights on first use (offline air-gapped deployments, regulated
+# environments where outbound traffic is audited).
+
+FROM python:3.12-slim
+
+WORKDIR /app
+COPY pyproject.toml README.md /app/
+COPY src/ /app/src/
+
+# System deps for the ONNX runtime fastembed uses. The slim base
+# lacks libgomp1 / libstdc++6 transitively.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libgomp1 \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir --upgrade pip \
+ && pip install --no-cache-dir "/app[neural]" \
+ && rm -rf /root/.cache/pip /tmp/*
+
+# Pre-download bge-small-en-v1.5 weights so first-store is instant.
+# fastembed caches under ~/.cache/fastembed; we materialize this at
+# build time so the layer is reusable. NO `|| echo` fallback —
+# the whole point of the "full" image is bundled weights; a silent
+# failure here would ship a broken image identical to the slim
+# variant (per M4 review C2).
+RUN python -c "from fastembed import TextEmbedding; \
+    TextEmbedding(model_name='BAAI/bge-small-en-v1.5')"
+
+VOLUME ["/root/.sage-memory"]
+EXPOSE 3333
+STOPSIGNAL SIGTERM
+
+ENTRYPOINT ["sage-memory"]
+CMD ["serve", "--transport", "sse", "--host", "0.0.0.0", "--port", "3333"]

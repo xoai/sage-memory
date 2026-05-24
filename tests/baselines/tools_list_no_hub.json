@@ -1,0 +1,431 @@
+[
+  {
+    "description": "Set the active project for this session. Call this FIRST before any other sage_memory tools, passing the current project's root directory path. This ensures all stores and searches use the correct project database. Without this call, sage-memory falls back to detecting the project from the server's working directory, which may be stale if the server was started from a different project.",
+    "inputSchema": {
+      "properties": {
+        "path": {
+          "description": "Absolute path to the project root directory. This is typically the directory containing .git, pyproject.toml, package.json, or similar markers.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "name": "sage_memory_set_project"
+  },
+  {
+    "description": "Store knowledge for future retrieval. Use this to persist: code understanding (architecture, patterns, data flows), decisions and their rationale, debugging insights and solutions, project conventions and rules. Write a clear, descriptive title (what is this about?) and detailed content explaining the 'what' and 'why'. Good content is specific, uses domain vocabulary, and would help someone (or you, later) understand the topic without reading the source code. 0.9+: pass optional `entities` and `relations` to populate the knowledge graph inline (no LLM API key needed for sage-memory). Response includes `suggested_links` listing existing memories whose content overlaps. 0.12.0+: `suggested_links` entries may carry `confidence: \"near_duplicate\"` and `similarity` when the new memory is semantically near a stored one (cosine \u2265 0.95). When this signals fires, consider linking via `relation: \"supersedes\"` to mark the older memory as superseded by the newer paraphrase. Best fit: durable context \u2014 architecture decisions, user preferences, debugging insights, conventions, prevention rules. Anything an agent benefits from recalling next session.",
+    "inputSchema": {
+      "properties": {
+        "content": {
+          "description": "Detailed explanation of the knowledge. Include: what it does, why it matters, key patterns or gotchas. Use the project's actual terminology \u2014 class names, function names, domain concepts. Markdown supported.",
+          "type": "string"
+        },
+        "entities": {
+          "description": "Entities mentioned in the content (0.9+). Populates the knowledge graph without sage-memory needing its own LLM key. Max 50 entries per call.",
+          "items": {
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "surface_form": {
+                "type": "string"
+              },
+              "type": {
+                "enum": [
+                  "PERSON",
+                  "CONCEPT",
+                  "TECHNOLOGY",
+                  "PROJECT",
+                  "EVENT",
+                  "OTHER"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "type"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "relations": {
+          "description": "Relations between entities (0.9+). `from`/`to` are entity names matched against entities passed in this call AND existing entities in the DB. Unresolvable endpoints are silently dropped. Max 100 entries.",
+          "items": {
+            "properties": {
+              "from": {
+                "type": "string"
+              },
+              "rel": {
+                "enum": [
+                  "mentions",
+                  "relates_to",
+                  "contains",
+                  "depends_on",
+                  "contradicts",
+                  "derived_from",
+                  "implements",
+                  "references",
+                  "supersedes",
+                  "alternative_to"
+                ],
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "to",
+              "rel"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "scope": {
+          "description": "'project' (default) for this codebase's knowledge, 'global' for cross-project patterns and preferences.",
+          "enum": [
+            "project",
+            "global"
+          ],
+          "type": "string"
+        },
+        "tags": {
+          "description": "Domain tags for filtering: technology, area, concept.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "description": "Short descriptive title (5-15 words). Be specific: 'Payment saga orchestration in billing service' not 'How payments work'.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "content"
+      ],
+      "type": "object"
+    },
+    "name": "sage_memory_store"
+  },
+  {
+    "description": "Search stored knowledge using natural language. Searches this project's memory and global memory, with project results ranked higher. Use before starting work to recall relevant context, architecture decisions, or past solutions. After running scan-codebase, combine filter_tags: ['codebase'] with code-specific queries to discover files by topic. 0.12.0+: result entries may carry `superseded_by: <id>` when a newer memory has been linked via `relation: \"supersedes\"`. Results are NOT filtered or down-ranked \u2014 the agent decides whether to prefer the newer memory.",
+    "inputSchema": {
+      "properties": {
+        "channels": {
+          "description": "Subset of channels to consult. Default = all available (FTS5 + vector + graph proximity, gracefully degrading when graph is empty). Empty list returns no results.",
+          "items": {
+            "enum": [
+              "bm25",
+              "vector",
+              "graph"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "expand": {
+          "default": false,
+          "description": "Enable LLM query expansion. Default: false (matches published 0.8.0 bench config). Pass true to enable; requires LLM API key.",
+          "type": "boolean"
+        },
+        "filter_tags": {
+          "description": "Hard filter (AND logic) \u2014 ONLY return memories matching ALL these tags. Use for namespace isolation, e.g. filter_tags: [\"self-learning\"] to search only within learnings, or filter_tags: [\"codebase\"] to surface only source-file memories after sage_memory_scan_codebase.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "limit": {
+          "description": "Max results (1-50, default 5).",
+          "type": "integer"
+        },
+        "query": {
+          "description": "What you're looking for \u2014 describe the topic or question naturally.",
+          "type": "string"
+        },
+        "rerank": {
+          "default": false,
+          "description": "Enable LLM rerank of top-K results. Default: false (matches published 0.8.0 bench config). Pass true to enable; requires LLM API key.",
+          "type": "boolean"
+        },
+        "scope": {
+          "description": "'project' (default) searches project + global. 'global' searches global only.",
+          "enum": [
+            "project",
+            "global"
+          ],
+          "type": "string"
+        },
+        "strategy": {
+          "description": "Retrieval strategy: 'hybrid' (default) combines FTS5 + vector; 'semantic' biases toward vector; 'keyword' uses FTS5 only.",
+          "enum": [
+            "hybrid",
+            "semantic",
+            "keyword"
+          ],
+          "type": "string"
+        },
+        "tags": {
+          "description": "Soft boost \u2014 results with these tags rank higher, but non-matching results are still included.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    },
+    "name": "sage_memory_search"
+  },
+  {
+    "description": "Update existing knowledge by ID. Use when understanding deepens, code changes, or stored information becomes outdated. Only provide fields you want to change. 0.9+: passing `entities` (including `[]`) REPLACEs all mentions and source-relations for this memory; omit to leave the graph rows untouched. Response includes `suggested_links`.",
+    "inputSchema": {
+      "properties": {
+        "content": {
+          "description": "New content.",
+          "type": "string"
+        },
+        "entities": {
+          "description": "Agent-provided entities for this memory (0.9+). When passed (including `[]`), REPLACEs prior mentions and source-relations regardless of origin. Same shape as sage_memory_store.",
+          "items": {
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "id": {
+          "description": "Memory ID to update.",
+          "type": "string"
+        },
+        "relations": {
+          "description": "Agent-provided relations (0.9+). Same shape as sage_memory_store.",
+          "items": {
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "scope": {
+          "description": "Which database contains this memory.",
+          "enum": [
+            "project",
+            "global"
+          ],
+          "type": "string"
+        },
+        "status": {
+          "description": "Lifecycle status. Set to 'invalidated' when a learning is proven wrong \u2014 it will be excluded from all future searches.",
+          "enum": [
+            "active",
+            "invalidated",
+            "archived"
+          ],
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "description": "New title.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "sage_memory_update"
+  },
+  {
+    "description": "Delete a memory by ID. Use when knowledge is no longer relevant.",
+    "inputSchema": {
+      "properties": {
+        "id": {
+          "description": "Memory ID to delete.",
+          "type": "string"
+        },
+        "scope": {
+          "description": "Which database contains this memory.",
+          "enum": [
+            "project",
+            "global"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "sage_memory_delete"
+  },
+  {
+    "description": "Browse stored memories with optional tag filtering. Shows active knowledge by default, sorted by most recently updated. Tags use AND logic: all specified tags must match. Set include_archived to see invalidated/archived memories too.",
+    "inputSchema": {
+      "properties": {
+        "include_archived": {
+          "description": "If true, also show invalidated and archived memories. Default false.",
+          "type": "boolean"
+        },
+        "limit": {
+          "description": "Page size (default 20).",
+          "type": "integer"
+        },
+        "offset": {
+          "description": "Pagination offset.",
+          "type": "integer"
+        },
+        "scope": {
+          "description": "Which database to browse (default: project).",
+          "enum": [
+            "project",
+            "global"
+          ],
+          "type": "string"
+        },
+        "tags": {
+          "description": "Filter by tags (AND logic \u2014 all must match).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "name": "sage_memory_list"
+  },
+  {
+    "description": "Create or delete a typed relationship (edge) between two memories. Use this to express: dependencies (A depends_on B), containment (project has_task task), ownership (task assigned_to person), blocking (task blocks task), or any directed relationship. Edges are automatically cleaned up when either memory is deleted. Best fit: dependency graphs (A depends on B), supersession chains (new memory replaces an outdated one), task\u2192entity associations, learning\u2192affected-object pointers.",
+    "inputSchema": {
+      "properties": {
+        "delete": {
+          "description": "If true, delete the edge instead of creating it.",
+          "type": "boolean"
+        },
+        "properties": {
+          "description": "Optional JSON properties on the edge (confidence, notes, etc.).",
+          "type": "object"
+        },
+        "relation": {
+          "description": "Relationship type. Common relations: depends_on, has_task, assigned_to, blocks, part_of, contains, relates_to, supersedes (newer memory replaces an older paraphrase \u2014 0.12.0+, see sage_memory_store's `confidence: \"near_duplicate\"` signal), or any custom string.",
+          "type": "string"
+        },
+        "scope": {
+          "description": "Which database (default: project).",
+          "enum": [
+            "project",
+            "global"
+          ],
+          "type": "string"
+        },
+        "source_id": {
+          "description": "ID of the source memory (edge starts here).",
+          "type": "string"
+        },
+        "target_id": {
+          "description": "ID of the target memory (edge points here).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "target_id",
+        "relation"
+      ],
+      "type": "object"
+    },
+    "name": "sage_memory_link"
+  },
+  {
+    "description": "Traverse relationships from a starting memory. Returns connected memories and edges within the specified depth. Use to explore: dependency chains, project task trees, blocking relationships, or any graph structure built with sage_memory_link. Best fit: cross-entity impact analysis ('what depends on X?'), tracing supersession chains, surfacing all learnings touching a given module/topic.",
+    "inputSchema": {
+      "properties": {
+        "depth": {
+          "description": "Max traversal hops (1-5, default 1).",
+          "type": "integer"
+        },
+        "direction": {
+          "description": "outbound (source\u2192target), inbound (target\u2192source), or both. Default: outbound.",
+          "enum": [
+            "outbound",
+            "inbound",
+            "both"
+          ],
+          "type": "string"
+        },
+        "id": {
+          "description": "Starting memory ID.",
+          "type": "string"
+        },
+        "relation": {
+          "description": "Optional \u2014 only follow edges of this relation type.",
+          "type": "string"
+        },
+        "scope": {
+          "description": "Which database (default: project).",
+          "enum": [
+            "project",
+            "global"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "sage_memory_graph"
+  },
+  {
+    "description": "Scan local source code with tree-sitter; populates the project's code-symbol index. Requires the [codebase] pip extra (install with: pip install 'sage-memory[codebase]'). Listed unconditionally so agents know to check install state via the call's success/false envelope rather than tool-list absence. Best fit: code intelligence without sending source to a SaaS \u2014 keeps proprietary code local.",
+    "inputSchema": {
+      "properties": {
+        "dry_run": {
+          "default": false,
+          "type": "boolean"
+        },
+        "force": {
+          "default": false,
+          "type": "boolean"
+        },
+        "include_ignored": {
+          "default": false,
+          "type": "boolean"
+        },
+        "languages": {
+          "description": "Subset of {py,ts,js,go,rs,java,rb,php,c,cpp}. Default: all detected by file extension.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "limit": {
+          "default": 5000,
+          "type": "integer"
+        },
+        "path": {
+          "description": "Directory to scan (defaults to project root).",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "name": "sage_memory_scan_codebase"
+  }
+]

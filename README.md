@@ -41,13 +41,6 @@ One search returns all three. The agent knows how things work, how they connect,
           → knowledge + structure + experience
 ```
 
-> **sage and mem0 are both memory for AI agents — different philosophies.**
-> mem0 is hosted-SaaS-first, LLM-driven extraction from conversation turns.
-> sage is local-first, skill-driven, graph-native, optionally zero-LLM.
-> Pick based on your infra constraints. See
-> [evaluate-mem0.md](.sage/docs/research/evaluate-mem0.md) for the full
-> side-by-side analysis.
-
 ## Where sage fits
 
 sage works for any AI agent that needs persistent memory.
@@ -66,11 +59,8 @@ sage works for any AI agent that needs persistent memory.
 
 **Where you might prefer another tool:**
 
-- **Hosted SaaS with no infra** — sage is local-first by design;
-  managed-memory services like
-  [mem0](https://github.com/mem0ai/mem0) handle their own hosting.
-- **Conversation-turn auto-extraction** — mem0's
-  `memory.add(messages=...)` extracts facts from raw conversation
+- **Hosted SaaS with no infra** — sage is local-first by design.
+- **Conversation-turn auto-extraction** — [sage-wiki](https://github.com/xoai/sage-wiki) extracts facts & concepts from raw data
   via an LLM. sage requires the agent to call `sage_memory_store`
   explicitly (with optional 0.9.0 agent-driven entities/relations).
 - **Cross-machine sync out of the box** — sage's per-project DBs

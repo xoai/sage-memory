@@ -53,12 +53,87 @@ class LlmNotConfiguredError(RuntimeError):
 # ─── Public API ───────────────────────────────────────────────────
 
 
-def is_configured() -> bool:
-    """True iff at least one supported provider key is set in env."""
-    return bool(
-        os.environ.get("ANTHROPIC_API_KEY")
-        or os.environ.get("OPENAI_API_KEY")
+def is_configured(provider: str | None = None) -> bool:
+    """True iff at least one supported provider has credentials.
+
+    M4.3 (ADR-010): when ``provider`` is named, checks both the
+    env-var path AND the subscription-auth path (config-gated) for
+    that specific provider. When ``provider`` is None, returns True
+    iff ANY provider has credentials via either path — preserves
+    pre-M4 callers that just want "can the worker run an LLM?"
+
+    The subscription path is opt-in via ``~/.sage-memory/config.yaml``
+    (``auth.worker_llm.<provider>: subscription``); absent config =
+    today's env-var-only behavior.
+    """
+    if provider is not None:
+        return _has_credentials_for(provider)
+    # Any-provider form: env-var fast path (preserves the pre-M4
+    # cheap-check semantics for callers that don't care which
+    # provider answers).
+    if os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("OPENAI_API_KEY"):
+        return True
+    # Subscription path: any provider with stored creds counts.
+    return _has_credentials_for("openai") or _has_credentials_for("claude")
+
+
+def _worker_auth_mode(provider: str) -> str:
+    """Resolve ``config.auth.worker_llm.<provider>``. Returns
+    ``"subscription"`` when opted in, else ``"env"`` (default).
+
+    Absence of the config file or missing keys = ``"env"``. The
+    config file isn't required for the env-var path — it's purely
+    the opt-in switch for subscription auth.
+    """
+    import yaml
+    from pathlib import Path
+    config_path = Path.home() / ".sage-memory" / "config.yaml"
+    if not config_path.exists():
+        return "env"
+    try:
+        raw = yaml.safe_load(config_path.read_text()) or {}
+    except yaml.YAMLError:
+        return "env"
+    worker_llm = (raw.get("auth") or {}).get("worker_llm") or {}
+    mode = worker_llm.get(provider)
+    return "subscription" if mode == "subscription" else "env"
+
+
+_SUBSCRIPTION_FALLBACK_WARNED: set[str] = set()
+
+
+def _has_credentials_for(provider: str) -> bool:
+    """Returns True iff the provider has credentials available via
+    the resolved auth mode (subscription if opted in + creds present,
+    OR env var on the fallback path).
+
+    Subscription-opted-in but no creds → falls back to env var so a
+    half-configured worker isn't dead-in-the-water. M4 review
+    MAJOR-3: log a warning the first time the fallback fires per
+    provider so the operator can see that their explicit
+    `worker_llm: subscription` config isn't being honored. Once-
+    per-provider so the log isn't spammy on a hot worker loop."""
+    if _worker_auth_mode(provider) == "subscription":
+        from .auth import storage as _auth_storage
+        creds = _auth_storage.get_provider(provider)
+        if creds is not None and creds.access_token:
+            return True
+        if provider not in _SUBSCRIPTION_FALLBACK_WARNED:
+            _SUBSCRIPTION_FALLBACK_WARNED.add(provider)
+            logger.warning(
+                "auth: provider %r configured as 'subscription' in "
+                "~/.sage-memory/config.yaml but no credentials in "
+                "~/.sage-memory/auth.json — falling back to env var. "
+                "Run `sage-memory auth login --provider %s` to use "
+                "subscription auth.",
+                provider, provider,
+            )
+    env_key = (
+        "OPENAI_API_KEY" if provider == "openai"
+        else "ANTHROPIC_API_KEY" if provider == "claude"
+        else None
     )
+    return bool(env_key and os.environ.get(env_key))
 
 
 def extract_entities(

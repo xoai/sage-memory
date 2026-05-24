@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
+import sqlite3 as _sqlite3
 import time
 import uuid
 
@@ -25,7 +27,10 @@ from .chunker import (
 from .db import get_db
 from .embedder import get_embedder, serialize_vec
 from . import llm as _llm
+from . import semantic_dedup as _semantic_dedup
+from . import suggested_links as _suggested_links
 
+_logger = logging.getLogger("sage_memory.store")
 _EMBED_QUALITY_THRESHOLD = 0.6
 
 
@@ -84,6 +89,19 @@ def _enqueue_reembed(db, memory_id: str, now: float) -> None:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
+def _check_hub_ownership(scope: str) -> dict | None:
+    """Single import point for the M3.2 hub-ownership block check.
+
+    Lazy import keeps the hub package optional — sage-memory installs
+    that exclude `hub` (none currently planned) still import store.py
+    cleanly. Returns the read-only envelope when this session sees
+    the active project DB as hub-owned by another process; None
+    otherwise.
+    """
+    from .hub import ownership as _hub_ownership
+    return _hub_ownership.block_envelope_if_disabled(scope)
+
+
 def store(*, content: str, title: str | None = None,
           tags: list[str] | None = None, scope: str = "project",
           entities: list[dict] | None = None,
@@ -96,6 +114,9 @@ def store(*, content: str, title: str | None = None,
     When `entities is None`, the worker extracts later if an LLM key
     is configured (backwards-compat).
     """
+    blocked = _check_hub_ownership(scope)
+    if blocked is not None:
+        return blocked
     content = _normalize(content)
     if len(content) < 10:
         return {"success": False, "id": "", "message": "Content too short (min 10 chars)."}
@@ -143,7 +164,9 @@ def store(*, content: str, title: str | None = None,
     db.commit()
 
     # Phase 2: embed memory-level vec (synchronous, M1 path).
-    _try_embed(db, memory_id, title, content)
+    # 0.12.0: capture the embedding so _safe_suggest can run the
+    # semantic-dedup check without re-embedding.
+    fresh_embedding = _try_embed(db, memory_id, title, content)
 
     # Phase 3: chunk if long (M2).
     n_chunks = _chunk_and_embed(db, memory_id, content, now)
@@ -170,7 +193,11 @@ def store(*, content: str, title: str | None = None,
     # 0.9.0: suggest existing memories the agent may want to link to.
     # Fast FTS5 path (~4ms p95 on 1K corpus); never fails the store.
     # Exclude the just-stored memory so the agent doesn't see itself.
-    suggestions = _safe_suggest(db, content, exclude_id=memory_id)
+    # 0.12.0: pass fresh_embedding so _safe_suggest also runs the
+    # semantic-dedup check (None when embedder threshold/extra absent).
+    suggestions = _safe_suggest(
+        db, content, exclude_id=memory_id, embedding=fresh_embedding,
+    )
 
     return {
         "success": True, "id": memory_id, "message": "Stored.",
@@ -178,11 +205,20 @@ def store(*, content: str, title: str | None = None,
     }
 
 
-def _safe_suggest(db, content: str, *, exclude_id: str | None = None) -> list[dict]:
+def _safe_suggest(
+    db,
+    content: str,
+    *,
+    exclude_id: str | None = None,
+    embedding: list[float] | None = None,
+) -> list[dict]:
     """Wrap `suggested_links.find_suggested_links` so a lookup failure
-    never breaks the store/update path.
+    never breaks the store/update path. 0.12.0+: when `embedding` is
+    provided, runs `semantic_dedup.find_near_duplicate` first and
+    prepends a `confidence: "near_duplicate"` entry to the result,
+    deduplicating against FTS suggestions by `target_id`.
 
-    Splits failure modes into two tiers:
+    Splits FTS failure modes into two tiers:
       - sqlite3.Error: expected when the FTS5 vocab table is missing
         on a fresh DB, or under DB-level edge cases. Logged at DEBUG
         and swallowed — the store/update operation succeeds with an
@@ -191,22 +227,47 @@ def _safe_suggest(db, content: str, *, exclude_id: str | None = None) -> list[di
         etc.). Logged at WARNING with exc_info so the operator sees
         it in production logs; still swallowed to honor the contract
         that suggested_links never fails the parent operation.
+
+    The semantic-dedup branch follows the same contract: any failure
+    is swallowed (logged) and the result falls back to FTS-only.
     """
-    import logging
-    import sqlite3 as _sqlite3
-    _logger = logging.getLogger("sage_memory.store")
+    # 0.12.0: semantic-dedup branch (when embedding provided).
+    near_dup: dict | None = None
+    if embedding is not None:
+        try:
+            near_dup = _semantic_dedup.find_near_duplicate(
+                db, embedding=embedding, exclude_id=exclude_id,
+            )
+        except Exception:
+            _logger.warning(
+                "semantic_dedup: unexpected error — please report",
+                exc_info=True,
+            )
+            near_dup = None
+
+    # Existing FTS branch.
     try:
-        from . import suggested_links as _sl
-        return _sl.find_suggested_links(db, content, exclude_id=exclude_id)
+        fts_suggestions = _suggested_links.find_suggested_links(
+            db, content, exclude_id=exclude_id,
+        )
     except _sqlite3.Error:
         _logger.debug("suggested_links: sqlite error", exc_info=True)
-        return []
+        fts_suggestions = []
     except Exception:
         _logger.warning(
             "suggested_links: unexpected error — please report",
             exc_info=True,
         )
-        return []
+        fts_suggestions = []
+
+    # Merge: near_dup at position 0 (if present); drop any FTS entry
+    # pointing at the same target_id to avoid duplicate entries.
+    if near_dup is not None:
+        return [_semantic_dedup._format_near_dup_entry(near_dup)] + [
+            s for s in fts_suggestions
+            if s.get("target_id") != near_dup["target_id"]
+        ]
+    return fts_suggestions
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -228,6 +289,9 @@ def update(*, id: str, content: str | None = None, title: str | None = None,
     `entities is None`, mentions/relations are untouched (today's
     behavior); the worker may re-extract on content change.
     """
+    blocked = _check_hub_ownership(scope)
+    if blocked is not None:
+        return blocked
     # 0.9.0: validate agent-provided extraction payload before any DB writes.
     if entities is not None or relations is not None:
         from . import extractor as _extractor
@@ -279,9 +343,14 @@ def update(*, id: str, content: str | None = None, title: str | None = None,
          0 if needs_reembed else row["embedded"], now, new_status, id),
     )
 
+    # 0.12.0: capture fresh_embedding only when reembedding actually
+    # occurred — status/tag-only updates leave fresh_embedding=None
+    # so _safe_suggest falls through to FTS-only (avoids
+    # self-matching against the stale embedding).
+    fresh_embedding: list[float] | None = None
     if needs_reembed:
         db.execute("DELETE FROM memories_vec WHERE memory_id = ?", (id,))
-        _try_embed(db, id, new_title, new_content)
+        fresh_embedding = _try_embed(db, id, new_title, new_content)
 
     # M2 hysteresis: chunk/unchunk/re-chunk based on new content length.
     chunked_after = False
@@ -317,7 +386,9 @@ def update(*, id: str, content: str | None = None, title: str | None = None,
 
     result = {
         "success": True, "id": id, "message": "Updated.",
-        "suggested_links": _safe_suggest(db, new_content, exclude_id=id),
+        "suggested_links": _safe_suggest(
+            db, new_content, exclude_id=id, embedding=fresh_embedding,
+        ),
     }
     if status is not None:
         result["status"] = new_status
@@ -331,6 +402,10 @@ def update(*, id: str, content: str | None = None, title: str | None = None,
 
 def delete(*, id: str, scope: str = "project") -> dict:
     """Delete a single memory by ID."""
+    blocked = _check_hub_ownership(scope)
+    if blocked is not None:
+        blocked.setdefault("deleted", 0)
+        return blocked
     db = get_db(scope)
     row = db.execute("SELECT id FROM memories WHERE id = ?", (id,)).fetchone()
     if not row:
@@ -490,8 +565,21 @@ def _auto_title(content: str, max_len: int = 80) -> str:
     return content[:max_len].strip()
 
 
-def _try_embed(db, memory_id: str, title: str, content: str) -> None:
-    """Embed and store vector if embedder quality warrants it."""
+def _try_embed(db, memory_id: str, title: str, content: str) -> list[float] | None:
+    """Embed and store vector if embedder quality warrants it.
+
+    Returns the just-computed embedding on success so callers can
+    reuse it for semantic-dedup checks without re-embedding. Returns
+    None in three documented cases:
+      (a) embedder quality below threshold (`_embedder_meets_threshold`
+          false — typically LocalEmbedder when a higher-quality
+          embedder is unavailable);
+      (b) any exception during embed / DB write (existing swallow
+          path preserved for backward-compat — `_safe_suggest`
+          handles None gracefully);
+      (c) (callers that pass None embedding through `_safe_suggest`
+          get FTS-only suggestions — see the integration there.)
+    """
     try:
         embedder = get_embedder()
         if _embedder_meets_threshold(embedder):
@@ -508,8 +596,17 @@ def _try_embed(db, memory_id: str, title: str, content: str) -> None:
             )
             db.execute("UPDATE memories SET embedded = 1 WHERE id = ?", (memory_id,))
             db.commit()
+            return vec
     except Exception:
-        pass
+        # Swallow per existing contract (never break store/update on
+        # embedder failure). Logged at DEBUG so the swallow is visible
+        # to operators tracing why semantic-dedup didn't fire — the
+        # 0.12.0 dedup check skips when this returns None.
+        _logger.debug(
+            "_try_embed: swallowed exception during embed/vec write",
+            exc_info=True,
+        )
+    return None
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -32,6 +32,24 @@ def main():
         asyncio.run(run())
         return
 
+    if argv[0] == "serve":
+        # 0.13.0+: explicit subcommand for transport selection. Arg-less
+        # `sage-memory` stays routed to the legacy `run()` path above
+        # so existing MCP launchers keep working unchanged; both paths
+        # converge on the same FastMCP factory + lifespan.
+        from .cli_serve import run_serve
+        sys.exit(run_serve(argv[1:]))
+
+    if argv[0] == "hub":
+        # 0.13.0+: hub federation subcommand tree (ADR-008).
+        from .cli_hub import run_hub
+        sys.exit(run_hub(argv[1:]))
+
+    if argv[0] == "auth":
+        # 0.13.0+: subscription auth for the worker (ADR-010).
+        from .cli_auth import run_auth
+        sys.exit(run_auth(argv[1:]))
+
     if argv[0] == "status":
         from .cli_status import print_status
         print_status()
@@ -87,8 +105,12 @@ _HELP_TEXT = """\
 sage-memory — Ultrafast local MCP memory for LLMs
 
 Usage:
-  sage-memory                 Start the MCP server (default)
-  sage-memory run             Same as above (explicit)
+  sage-memory                 Start the MCP server (stdio; backwards-compat)
+  sage-memory run             Same as above (explicit alias)
+  sage-memory serve --help    0.13.0+: explicit transport selection
+                              (stdio | sse | http) + host/port/hub flags
+  sage-memory hub --help      0.13.0+: cross-project hub federation
+                              (init | add | remove | list | status)
   sage-memory status          Show active embedder + corpus dim + stale count
   sage-memory worker --status Show background-worker queue depth
   sage-memory reindex --help  Re-embed memories + chunks (full or partial)

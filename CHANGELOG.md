@@ -2,15 +2,183 @@
 
 All notable changes to sage-memory will be documented in this file.
 
+## [0.13.0] — 2026-05-24
+
+Team MCP transports. Adds **Pattern B** (shared MCP server over SSE
+or streamable-HTTP) and **Pattern C** (hub federation across multiple
+project DBs) from sage-wiki, plus subscription auth for the optional
+entity-dedup worker, plus two Docker images for self-hosted deploys.
+
+The MCP server migrates from `mcp.server.stdio` to FastMCP so all
+three transports (stdio, sse, streamable-http) dispatch through a
+single supported SDK API. Backwards compat is load-bearing:
+arg-less `sage-memory` invocation continues to launch stdio with
+byte-equal `tools/list` output AND envelope-shape preserved by a
+shared dispatch wrapper.
+
+### Added
+
+- `sage-memory serve --transport {stdio,sse,http} [--port N --host
+  HOST --hub --log-level LEVEL]` — explicit transport selection.
+  Arg-less `sage-memory` still launches stdio for backwards-compat.
+- `sage-memory hub` subcommand tree:
+  `init / add / remove / list / status / search / store / import /
+  release`. Config at `~/.sage-hub.yaml` with versioned schema +
+  per-version migration hook registry.
+- `sage_memory_search(hub_projects=[...])` MCP param (active under
+  `--hub`) fans out search across registered projects + global.
+- `sage_memory_store(hub_target=...)` MCP param (active under
+  `--hub`) routes the write to a writable hub-registered project.
+- PID-and-heartbeat ownership protocol (`<project>/.sage-memory/
+  .hub-owner.json`) with atomic-rename stale-reclaim + asyncio.Task
+  heartbeat + per-DB `_disabled_writes` registry. Three documented
+  escape hatches: `rm` the file, `sage-memory hub release <name>`,
+  `SAGE_HUB_IGNORE_OWNERSHIP=1` env var (dev only).
+- Subscription auth via OAuth: `sage-memory auth` subcommand tree
+  (`login / import / list / remove / status`). Stored at
+  `~/.sage-memory/auth.json` with mode 0600. Opt-in via
+  `~/.sage-memory/config.yaml` (`auth.worker_llm.<provider>:
+  subscription`). Affects only `sage-memory dedup` worker.
+- `Dockerfile.slim` (≤ 60MB; bring-your-own embeddings) +
+  `Dockerfile.full` (≤ 350MB; bge-small-en-v1.5 pre-bundled).
+- `/health` endpoint on SSE / HTTP transports.
+- New guide: `docs/guides/self-hosted-server.md` covering Docker,
+  reverse-proxy patterns, Pattern A → B migration, subscription
+  auth, ownership escape hatches.
+
+### Changed
+
+- MCP server migrated from low-level `mcp.server.Server` API to
+  `mcp.server.fastmcp.FastMCP`. Tools registered via a thin
+  `PassthroughFuncMetadata` adapter that preserves the hand-crafted
+  inputSchema verbatim — published `tools/list` is byte-equal to
+  pre-migration 0.12.x. Verified via
+  `tests/test_tools_list_baseline.py`.
+- `search.rrf_fuse` extracted as a top-level helper so hub
+  fan-out and per-project search share one RRF implementation.
+- `docs/guides/team-setup.md` — Patterns B + C move from "planned"
+  to "shipped" with full setup instructions.
+
+### Notes
+
+- **Docker port-publish vs internal `--host`:** `docker run -p
+  3333:3333` publishes the container's port on `0.0.0.0` of the
+  host regardless of `--host 127.0.0.1`. For non-localhost
+  deployments, deploy behind a reverse-proxy auth layer.
+- **Hub federation v1 limitations:** fan-out search uses FTS5 only
+  (no vector / graph / LLM stages on the cross-project path).
+- **`hub import` v1 requires explicit `--to <name>`:** auto-naming
+  is deferred to a future cycle.
+- **Subscription auth scope:** only affects users of the optional
+  `sage-memory dedup` worker.
+
+## [0.12.0] — 2026-05-24
+
+Memory-level semantic dedup. SHA-256 dedup catches identical
+content; this release adds a cosine-similarity check on the
+embedding so paraphrased memories (cosine ≥ 0.95) get flagged at
+write time and can be linked via the existing `supersedes` graph
+edge. No new LLM dependency — uses the embedding infrastructure
+shipped in earlier cycles.
+
+The signal is **advisory**: `sage_memory_store` responses surface
+near-duplicates in the existing `suggested_links` field with
+`confidence: "near_duplicate"`; the agent decides whether to link,
+merge, or store as distinct. `sage_memory_search` results carry
+`superseded_by: <newer_id>` when an incoming `supersedes` edge
+exists — older memories are NOT filtered or down-ranked.
+
+**No schema migration.** All required infrastructure existed
+already (`memories_vec` from 001, `edges` from 002, `supersedes`
+accepted by the free-form `link()` relation field). The change is
+additive at the response-shape layer.
+
+### Added
+
+- **Semantic dedup signal** on `sage_memory_store` and
+  `sage_memory_update`: `suggested_links` entries gain
+  `confidence: "near_duplicate"` + `similarity` when the new
+  memory's embedding has cosine ≥ 0.95 to an existing memory in
+  the same scope. Runs synchronously on write; p99 ≤ 50ms on a
+  10k-memory project (measured ~4.6ms in T7 perf test).
+- **`superseded_by` annotation** in `sage_memory_search` result
+  envelopes when a result has an incoming `supersedes` edge.
+  Surfaces the most recent supersession (`ORDER BY created_at
+  DESC, rowid DESC` tie-break — sqlite's `rowid` is monotonic
+  per-table, so the later INSERT always wins a same-tick tie;
+  `edges.id` would not work because it's a random UUID hex).
+  Cross-DB supersedes is NOT followed by design — `edges` is
+  per-DB.
+- **`sage-memory dedup --mode {entity,memory}`** flag. `entity`
+  (default) preserves existing M5 entity-dedup behavior. `memory`
+  is reserved for the forthcoming `--backfill` flag and prints a
+  forward-only stub message in 0.12.0; it short-circuits BEFORE
+  the LLM-key gate and the `--provider stub` validation.
+- **`sage-self-learning` skill** extended with a new "When a
+  memory is a paraphrase of an older one" subsection that
+  contrasts `supersedes` (semantic paraphrase, both stay visible)
+  with the existing `corrects` + `status: invalidated` pattern
+  (factual wrongness, original hidden).
+- **`semantic_dedup` module** (`sage_memory.semantic_dedup`):
+  `find_near_duplicate(conn, *, embedding, exclude_id=None,
+  threshold=0.95, k=5) -> dict | None`. k=5 (not 1) gives headroom
+  for the just-stored self-row + up to 4 invalidated neighbors
+  before the post-LIMIT exclude_id/status filter yields empty.
+  Defensive normalize at the boundary handles zero / NaN / non-unit
+  inputs.
+- **`@pytest.mark.perf`** marker registered in `pyproject.toml`
+  with `addopts = "-m 'not perf'"` so perf tests skip by default
+  and run via `pytest -m perf`.
+
+### Changed
+
+- **`_try_embed` return type**: now returns `list[float] | None`
+  (was `None`). Internal-only; no external callers existed.
+  Callers reuse the embedding for the dedup check without
+  re-embedding.
+- **MCP tool descriptions** updated:
+  - `sage_memory_store` mentions the new `confidence:
+    "near_duplicate"` signal and the `supersedes` linking pattern.
+  - `sage_memory_search` documents the optional `superseded_by`
+    field.
+  - `sage_memory_link` explicitly enumerates `supersedes` in the
+    relation examples (previously implicit via the free-form
+    string field).
+
+### Unchanged
+
+- Storage / FTS5 / vector index / RRF retrieval / graph traversal
+  — semantically untouched. Test baseline preserved (873 → 918,
+  delta +45 from this cycle's new tests across 7 new files plus
+  helpers and Gate-3 review additions).
+- `sage-memory dedup` default behavior — `--mode entity` is the
+  default, existing scripts work unchanged.
+- `[neural]` extra still optional. With no embedder, the
+  semantic-dedup branch silently no-ops; `suggested_links` falls
+  back to FTS-only suggestions (existing 0.9.0 behavior).
+- No new dependencies. No new migration. No new MCP tool.
+
+### Notes
+
+- Threshold 0.95 is fixed for v1 (conservative; no env-var
+  tuning). Calibration against field data informs any future
+  adjustment.
+- Backfill is forward-only in 0.12.0. The `--mode memory` CLI
+  scaffolding lands so a future `sage-memory dedup --mode memory
+  --backfill` fits naturally.
+- `find_near_duplicate` is project-scope (or whichever DB the
+  caller passes). Cross-scope writes (project vs global) do NOT
+  compare against each other's vectors. Search separately
+  surfaces both DBs at read time, but `_annotate_superseded` runs
+  per-DB by `source` tag.
+
 ## [0.11.1] — 2026-05-24
 
-Positioning refresh — name three differentiators that make sage
-different from mem0 (coding-assistant memory, experience layer,
+Positioning clarification — three differentiators named
+(coding-assistant memory, experience layer,
 skills-as-intelligence) without narrowing the audience. sage
 remains memory for ANY AI agent that needs persistent context;
 the three wedges describe capabilities, not exclusive use cases.
-Triggered by a sub-agent comparative review with mem0 (see
-`.sage/docs/research/evaluate-mem0.md`).
 
 **No behavior change.** All MCP tools, CLI subcommands, schema,
 retrieval pipeline, embedder cascade, entity extraction — all
@@ -26,15 +194,11 @@ paths preserved. This is a docs-and-descriptions patch.
   ("AI agents") with three differentiators named. Visible on
   PyPI, GitHub repo card, and `pip show sage-memory`.
 - **`README.md`** restructured:
-  - New comparison-disclaimer blockquote: "sage and mem0 are
-    both memory for AI agents — different philosophies." Frames
-    choice as infrastructure trade-off, not audience match.
-  - New "Where sage fits" section with "Where it shines" +
-    "Where you might prefer another tool" lists. Both lists are
-    infrastructure-driven (local-first / code-aware /
+  - New "Where sage fits" section frames the choice as an
+    infrastructure trade-off (local-first / code-aware /
     learning-loops / graph-reasoning vs hosted-SaaS /
-    conversation-extraction / cross-machine sync). Honest link
-    to mem0 in the not-as-fit list.
+    conversation-extraction / cross-machine sync) rather than an
+    audience match.
   - "Optional: Codebase Scan (0.11+)" section promoted from its
     previous position (after Retrieval Pipeline) to immediately
     after Setup — it's the latest big feature and the strongest
@@ -52,10 +216,6 @@ paths preserved. This is a docs-and-descriptions patch.
   the broader "AI agents" framing in the first 1-2 sentences.
   Activation triggers preserved verbatim; install paths
   unchanged.
-- **`evaluate-mem0.md` §10**: added a one-paragraph callout
-  noting the audience correction so future agents reading the
-  eval doc don't repeat the over-narrow framing the original
-  doc suggested.
 
 ### Unchanged
 

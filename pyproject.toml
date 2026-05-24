@@ -1,6 +1,6 @@
 [project]
 name = "sage-memory"
-version = "0.11.1"
+version = "0.13.0"
 description = "Local MCP memory for AI agents — graph-native, learns from mistakes, no LLM required"
 readme = "README.md"
 license = { text = "MIT" }
@@ -30,4 +30,6 @@ packages = ["src/sage_memory"]
 [tool.pytest.ini_options]
 markers = [
     "build: tests that invoke `uv build` (slower; run with full suite)",
+    "perf: performance budgets (skipped by default; run with `-m perf`)",
 ]
+addopts = "-m 'not perf'"
