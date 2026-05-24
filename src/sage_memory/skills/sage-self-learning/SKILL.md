@@ -275,6 +275,43 @@ replaces it as active knowledge. The graph edge preserves the audit trail.
 add `status: invalidated` to its frontmatter. Create the correction as
 a new file.
 
+### When a memory is a paraphrase of an older one (0.12.0+)
+
+When `sage_memory_store` returns a `suggested_links` entry with
+`confidence: "near_duplicate"`, the new content is a semantic
+paraphrase of an existing memory (cosine similarity ≥ 0.95
+against the existing memory's embedding). Decide one of:
+
+- **Link via `supersedes`** if the new wording is more accurate or
+  current:
+  ```
+  sage_memory_link(
+    source_id: "<new_id>",
+    target_id: "<older_id>",
+    relation: "supersedes"
+  )
+  ```
+  Future `sage_memory_search` results will surface the older
+  memory with `superseded_by: <new_id>` so agents can prefer the
+  newer one. The older memory is NOT filtered or down-ranked —
+  transparency over silent hiding.
+
+- **Merge content** if the old phrasing carries useful detail the
+  new one lost: `sage_memory_update(id: "<older_id>",
+  content: "<merged_text>")` then `sage_memory_delete(id: "<new_id>")`.
+
+- **Keep both** if they cover meaningfully different angles (rare
+  at cosine ≥ 0.95). No action needed; both stay active.
+
+**`supersedes` vs `corrects` — pick the right one:**
+- `corrects` + `status: invalidated` (see "When a Learning Causes
+  a Bug" above) is for memories that are *factually wrong* —
+  outdated library names, broken patterns, contradicted
+  conventions. The original is hidden from future search.
+- `supersedes` is for *semantic paraphrase* where both versions
+  are valid but the newer is preferred. Both stay visible;
+  the older carries a pointer to the newer.
+
 ### Search Before Store (Semantic Reinforcement)
 
 Before creating a new learning, check for existing similar learnings:

@@ -40,9 +40,18 @@ _SAGE_APPLICATION_ID = 0x5341474D
 
 
 _HELP_TEXT = """\
-sage-memory dedup — entity deduplication (LLM-confirmed)
+sage-memory dedup — entity or memory deduplication
 
-Usage:
+Modes (0.12.0+):
+  --mode entity   (default)  Entity-level dedup (existing M5 behavior;
+                             LLM-confirmed; see flags below).
+  --mode memory              Memory-level semantic dedup signal.
+                             Forward-only in 0.12.0: runs synchronously
+                             on every sage_memory_store write. A
+                             --backfill flag for one-shot retro-sweep
+                             is planned for 0.12.x.
+
+Entity-mode usage (--mode entity, default):
   sage-memory dedup
       Default: enqueue a `dedup` task for the background worker.
       Returns the task id; worker processes at next poll cycle.
@@ -58,11 +67,26 @@ Usage:
       report (candidate-pair count × $0.0002 per pair). LLM key is
       NOT required.
 
-Algorithm (per ADR-003):
+Memory-mode usage (--mode memory):
+  sage-memory dedup --mode memory
+      Prints the forward-only stub message and exits 0. The actual
+      memory-level dedup ships as automatic write-time signal in
+      sage_memory_store responses (see CHANGELOG 0.12.0).
+
+Algorithm (entity mode, per ADR-003):
   Group entities by type; for pairs with cosine > 0.9 on the name
   embedding, ask the LLM to confirm; on yes, set canonical_id of
   one to the other.
 """
+
+
+_MODE_MEMORY_STUB_MESSAGE = (
+    "sage-memory dedup --mode memory: forward-only in 0.12.0.\n"
+    "Memory-level semantic dedup runs synchronously on every\n"
+    "sage_memory_store write. A --backfill flag for one-shot\n"
+    "retro-sweep of existing memories is planned for 0.12.x;\n"
+    "not in this release."
+)
 
 
 def run_dedup(argv: list[str]) -> int:
@@ -74,6 +98,14 @@ def run_dedup(argv: list[str]) -> int:
     flags = _parse_flags(argv)
     if flags is None:
         return 2
+
+    # 0.12.0: --mode memory short-circuits BEFORE any other validation
+    # (including --provider stub + --sync check), so conflicting
+    # combinations print the forward-only message rather than the
+    # "stub requires sync" error.
+    if flags.mode == "memory":
+        print(_MODE_MEMORY_STUB_MESSAGE)
+        return 0
 
     if flags.provider_stub and not flags.sync:
         print(
@@ -115,6 +147,7 @@ def run_dedup(argv: list[str]) -> int:
 class _Flags:
     sync: bool = False
     provider_stub: bool = False
+    mode: str = "entity"   # 0.12.0+: "entity" (default) or "memory"
 
 
 def _parse_flags(argv: list[str]) -> _Flags | None:
@@ -125,6 +158,23 @@ def _parse_flags(argv: list[str]) -> _Flags | None:
         if a == "--sync":
             flags.sync = True
             i += 1
+        elif a == "--mode":
+            if i + 1 >= len(argv):
+                print(
+                    "sage-memory dedup: --mode requires a value\n",
+                    file=sys.stderr,
+                )
+                print(_HELP_TEXT, file=sys.stderr)
+                return None
+            if argv[i + 1] not in ("entity", "memory"):
+                print(
+                    f"sage-memory dedup: --mode must be 'entity' or "
+                    f"'memory' (got {argv[i + 1]!r})\n",
+                    file=sys.stderr,
+                )
+                return None
+            flags.mode = argv[i + 1]
+            i += 2
         elif a == "--provider":
             if i + 1 >= len(argv):
                 print(

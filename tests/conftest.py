@@ -145,6 +145,23 @@ def tmp_install_root(tmp_path, monkeypatch):
     return _Root()
 
 
+# ── semantic-dedup (0.12.0) — FastEmbedder fixture ───────────────
+
+
+@pytest.fixture(scope="session")
+def embedder_fastembed():
+    """Session-scoped FastEmbedder (bge-small-en-v1.5).
+
+    Skipped cleanly when the `[embeddings]` extra isn't installed —
+    `pytest.importorskip` guards both the import AND model load.
+    Session scope so the bge-small model only loads once per test
+    run (T1 + T6 share it).
+    """
+    pytest.importorskip("fastembed")
+    from sage_memory.embedder import FastEmbedder
+    return FastEmbedder()
+
+
 @pytest.fixture
 def mock_stdin_decisions(monkeypatch):
     """Feed scripted Decision values to the conflict prompt.
