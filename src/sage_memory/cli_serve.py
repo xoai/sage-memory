@@ -8,8 +8,9 @@ maps user-facing transport names to FastMCP's internal vocabulary:
   http  → streamable-http
 
 Stdio is the default and matches the arg-less ``sage-memory``
-backwards-compat path; non-stdio transports open a TCP socket via
-``FastMCP.run()`` (uvicorn-managed). See ADR-007 rev 2.
+backwards-compat path; non-stdio transports serve ``mcp.http_app()``
+via our own ``uvicorn.run()`` (see the comment at the call site for
+why ``FastMCP.run()`` is bypassed). See ADR-007 rev 2.
 """
 
 from __future__ import annotations
@@ -165,9 +166,7 @@ def run_serve(argv: list[str]) -> int:
     logging.basicConfig(level=getattr(logging, flags.log_level))
 
     from .server_fastmcp import build_mcp_app
-    mcp = build_mcp_app(
-        host=flags.host, port=flags.port, hub_enabled=flags.hub,
-    )
+    mcp = build_mcp_app(hub_enabled=flags.hub)
 
     if flags.transport == "stdio":
         # asyncio.run matches the arg-less __init__.py:main()
@@ -177,7 +176,24 @@ def run_serve(argv: list[str]) -> int:
         asyncio.run(mcp.run_stdio_async())
         return 0
 
-    # SSE / streamable-HTTP: FastMCP.run() owns the anyio loop +
-    # uvicorn lifecycle + graceful shutdown for network transports.
-    mcp.run(transport=_TRANSPORT_MAP[flags.transport])
+    # SSE / streamable-HTTP: serve the Starlette app with our own
+    # uvicorn instead of FastMCP.run(). In FastMCP 3.4.5 the run() path
+    # enters the user lifespan in the RUNNER task and the app's ASGI
+    # lifespan only takes a reference — on SIGTERM uvicorn drains the
+    # app but the runner's exit-stack close never completes, so the
+    # lifespan finally block (worker stop, access-count flush, DB
+    # close) silently never runs. Serving mcp.http_app() directly makes
+    # the ASGI lifespan the owner, and its shutdown path runs the
+    # finally block (verified: ASGI-level lifespan drive + SIGTERM
+    # against uvicorn). Default endpoint paths match FastMCP 1.0:
+    # /sse for sse, /mcp for streamable-http.
+    import uvicorn
+
+    app = mcp.http_app(transport=_TRANSPORT_MAP[flags.transport])
+    uvicorn.run(
+        app,
+        host=flags.host,
+        port=flags.port,
+        log_level=flags.log_level.lower(),
+    )
     return 0

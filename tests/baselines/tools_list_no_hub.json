@@ -1,5 +1,10 @@
 [
   {
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    },
     "description": "Set the active project for this session. Call this FIRST before any other sage_memory tools, passing the current project's root directory path. This ensures all stores and searches use the correct project database. Without this call, sage-memory falls back to detecting the project from the server's working directory, which may be stale if the server was started from a different project.",
     "inputSchema": {
       "properties": {
@@ -16,6 +21,11 @@
     "name": "sage_memory_set_project"
   },
   {
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    },
     "description": "Store knowledge for future retrieval. Use this to persist: code understanding (architecture, patterns, data flows), decisions and their rationale, debugging insights and solutions, project conventions and rules. Write a clear, descriptive title (what is this about?) and detailed content explaining the 'what' and 'why'. Good content is specific, uses domain vocabulary, and would help someone (or you, later) understand the topic without reading the source code. 0.9+: pass optional `entities` and `relations` to populate the knowledge graph inline (no LLM API key needed for sage-memory). Response includes `suggested_links` listing existing memories whose content overlaps. 0.12.0+: `suggested_links` entries may carry `confidence: \"near_duplicate\"` and `similarity` when the new memory is semantically near a stored one (cosine \u2265 0.95). When this signals fires, consider linking via `relation: \"supersedes\"` to mark the older memory as superseded by the newer paraphrase. Best fit: durable context \u2014 architecture decisions, user preferences, debugging insights, conventions, prevention rules. Anything an agent benefits from recalling next session.",
     "inputSchema": {
       "properties": {
@@ -116,6 +126,11 @@
     "name": "sage_memory_store"
   },
   {
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    },
     "description": "Search stored knowledge using natural language. Searches this project's memory and global memory, with project results ranked higher. Use before starting work to recall relevant context, architecture decisions, or past solutions. After running scan-codebase, combine filter_tags: ['codebase'] with code-specific queries to discover files by topic. 0.12.0+: result entries may carry `superseded_by: <id>` when a newer memory has been linked via `relation: \"supersedes\"`. Results are NOT filtered or down-ranked \u2014 the agent decides whether to prefer the newer memory.",
     "inputSchema": {
       "properties": {
@@ -189,6 +204,11 @@
     "name": "sage_memory_search"
   },
   {
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    },
     "description": "Update existing knowledge by ID. Use when understanding deepens, code changes, or stored information becomes outdated. Only provide fields you want to change. 0.9+: passing `entities` (including `[]`) REPLACEs all mentions and source-relations for this memory; omit to leave the graph rows untouched. Response includes `suggested_links`.",
     "inputSchema": {
       "properties": {
@@ -250,6 +270,11 @@
     "name": "sage_memory_update"
   },
   {
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    },
     "description": "Delete a memory by ID. Use when knowledge is no longer relevant.",
     "inputSchema": {
       "properties": {
@@ -274,6 +299,11 @@
     "name": "sage_memory_delete"
   },
   {
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    },
     "description": "Browse stored memories with optional tag filtering. Shows active knowledge by default, sorted by most recently updated. Tags use AND logic: all specified tags must match. Set include_archived to see invalidated/archived memories too.",
     "inputSchema": {
       "properties": {
@@ -310,6 +340,11 @@
     "name": "sage_memory_list"
   },
   {
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    },
     "description": "Create or delete a typed relationship (edge) between two memories. Use this to express: dependencies (A depends_on B), containment (project has_task task), ownership (task assigned_to person), blocking (task blocks task), or any directed relationship. Edges are automatically cleaned up when either memory is deleted. Best fit: dependency graphs (A depends on B), supersession chains (new memory replaces an outdated one), task\u2192entity associations, learning\u2192affected-object pointers.",
     "inputSchema": {
       "properties": {
@@ -352,6 +387,11 @@
     "name": "sage_memory_link"
   },
   {
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    },
     "description": "Traverse relationships from a starting memory. Returns connected memories and edges within the specified depth. Use to explore: dependency chains, project task trees, blocking relationships, or any graph structure built with sage_memory_link. Best fit: cross-entity impact analysis ('what depends on X?'), tracing supersession chains, surfacing all learnings touching a given module/topic.",
     "inputSchema": {
       "properties": {
@@ -393,6 +433,11 @@
     "name": "sage_memory_graph"
   },
   {
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    },
     "description": "Scan local source code with tree-sitter; populates the project's code-symbol index. Requires the [codebase] pip extra (install with: pip install 'sage-memory[codebase]'). Listed unconditionally so agents know to check install state via the call's success/false envelope rather than tool-list absence. Best fit: code intelligence without sending source to a SaaS \u2014 keeps proprietary code local.",
     "inputSchema": {
       "properties": {

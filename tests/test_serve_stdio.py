@@ -27,7 +27,11 @@ from pathlib import Path
 import pytest
 
 from mcp import ClientSession
-from mcp.client.stdio import StdioServerParameters, stdio_client
+from mcp.client.stdio import (
+    StdioServerParameters,
+    get_default_environment,
+    stdio_client,
+)
 from mcp.types import LATEST_PROTOCOL_VERSION
 
 
@@ -35,10 +39,22 @@ def _server_params(cwd: Path) -> StdioServerParameters:
     # `python -m sage_memory` invokes __main__.py which calls main(),
     # matching the installed `sage-memory` entry point exactly. Using
     # sys.executable keeps the venv consistent with the test runtime.
+    #
+    # HOME is pointed at an isolated subdir so the subprocess's GLOBAL
+    # DB (~/.sage-memory/sage.db) is fresh: sage_memory_search's default
+    # scope searches project + global (search.py:get_all_dbs), and a
+    # developer's real global DB fills limit=5 with unrelated memories,
+    # outranking the freshly stored one (fails locally, passes in CI).
+    # The subdir (not tmp_path itself) avoids db.set_project's
+    # "cannot set home directory as project root" guard and the
+    # cwd-IS-home project-detection guard.
+    fake_home = cwd / "fake-home"
+    fake_home.mkdir(exist_ok=True)
     return StdioServerParameters(
         command=sys.executable,
         args=["-m", "sage_memory"],
         cwd=str(cwd),
+        env={**get_default_environment(), "HOME": str(fake_home)},
     )
 
 

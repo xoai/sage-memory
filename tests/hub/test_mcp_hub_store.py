@@ -96,7 +96,7 @@ def test_hub_target_routes_to_writable_project(hub_with_writable_target):
         )
 
     result = asyncio.run(_scenario())
-    envelope = json.loads(result[0].text)
+    envelope = json.loads(result.content[0].text)
     assert envelope.get("success") is True, f"{envelope!r}"
     memory_id = envelope["id"]
 
@@ -130,7 +130,7 @@ def test_hub_target_non_writable_returns_error_envelope(
         )
 
     result = asyncio.run(_scenario())
-    envelope = json.loads(result[0].text)
+    envelope = json.loads(result.content[0].text)
     # Either {success: false, message: ...} from store_to_project,
     # or {error: ...} from the wrapper if it raised. Both
     # acceptable as "rejected" — assert either way.
@@ -158,7 +158,7 @@ def test_hub_target_ignored_without_hub_flag(hub_with_writable_target):
         )
 
     result = asyncio.run(_scenario())
-    envelope = json.loads(result[0].text)
+    envelope = json.loads(result.content[0].text)
     assert envelope.get("success") is True, (
         f"hub_target without --hub must not block; got {envelope!r}"
     )

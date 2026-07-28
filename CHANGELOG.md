@@ -2,6 +2,34 @@
 
 All notable changes to sage-memory will be documented in this file.
 
+## [0.13.1] — 2026-07-29
+
+### Fixed
+
+- `test_stdio_store_search_round_trip` was non-hermetic: the stdio
+  subprocess inherited the developer's real `HOME`, so
+  `sage_memory_search` (default scope = project + global) was polluted
+  by real global memories that filled `limit=5` and outranked the
+  freshly stored one. Passed in CI (empty HOME), failed on dev
+  machines. The subprocess now gets an isolated `HOME` subdir.
+- Fresh installs (`uvx sage-memory`, MCP client auto-start) crashed
+  with `ModuleNotFoundError: No module named 'mcp.server.fastmcp'`
+  after the `mcp` SDK 2.0.0 release removed the bundled FastMCP 1.0.
+  The MCP server now runs on the standalone **FastMCP 3.x** framework
+  (`fastmcp>=3,<4`; `mcp` pinned to `>=1.9,<2` for `mcp.types`). The
+  migration deletes the M1.1a private-API workarounds
+  (`PassthroughFuncMetadata`, direct `_tool_manager._tools` insertion):
+  FastMCP v3 publishes hand-crafted tool schemas verbatim and passes
+  incoming arguments through to `(**kwargs)` handlers natively.
+
+### Changed
+
+- `tools/list` entries now carry `"_meta": {"fastmcp": {"tags": []}}`
+  — emitted unconditionally by FastMCP v3, spec-compliant (`_meta` is
+  open by design), and ignored by MCP clients. All other wire shapes
+  (schemas, `_project` enrichment, `{"error": ...}` envelopes, hub
+  params) are byte-equal to 0.13.0. Baseline regenerated accordingly.
+
 ## [0.13.0] — 2026-05-24
 
 Team MCP transports. Adds **Pattern B** (shared MCP server over SSE

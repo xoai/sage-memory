@@ -135,7 +135,7 @@ def test_bootstrap_server_run_wires_resolver(monkeypatch):
     # Short-circuit FastMCP's stdio entry: enter the lifespan (which
     # is what bootstrap-tests really care about), then exit before
     # the actual MCP request loop starts.
-    from mcp.server.fastmcp import FastMCP
+    from fastmcp import FastMCP
 
     async def _fake_run_stdio_async(self):
         async with fmcp_mod.server_lifespan(self):

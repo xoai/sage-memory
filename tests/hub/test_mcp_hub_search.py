@@ -105,12 +105,13 @@ def test_search_tool_advertises_hub_projects_when_hub_enabled():
         f"non-hub description must NOT mention hub_projects; got: "
         f"{search_no_hub.description!r}"
     )
-    # Schema delta
+    # Schema delta (FastMCP v3 FunctionTool exposes the wire schema as
+    # `.parameters`; it becomes `inputSchema` on the wire)
     assert "hub_projects" in (
-        search_hub.inputSchema.get("properties") or {}
+        search_hub.parameters.get("properties") or {}
     )
     assert "hub_projects" not in (
-        search_no_hub.inputSchema.get("properties") or {}
+        search_no_hub.parameters.get("properties") or {}
     )
 
 
@@ -139,7 +140,7 @@ def test_hub_projects_param_ignored_without_hub_flag(
         return result
 
     result = asyncio.run(_scenario())
-    envelope = json.loads(result[0].text)
+    envelope = json.loads(result.content[0].text)
     # Regular per-project search returns the standard envelope shape.
     assert "results" in envelope or "error" in envelope, (
         f"unexpected envelope: {envelope!r}"
@@ -164,7 +165,7 @@ def test_hub_projects_with_hub_flag_fans_out(hub_with_two_projects):
         return result
 
     result = asyncio.run(_scenario())
-    envelope = json.loads(result[0].text)
+    envelope = json.loads(result.content[0].text)
     assert "results" in envelope, (
         f"hub fan-out envelope missing 'results': {envelope!r}"
     )
@@ -196,7 +197,7 @@ def test_non_list_hub_projects_returns_clear_error_envelope(
         )
 
     result = asyncio.run(_scenario())
-    envelope = json.loads(result[0].text)
+    envelope = json.loads(result.content[0].text)
     assert "error" in envelope, (
         f"non-list hub_projects must return error envelope; got: {envelope!r}"
     )
@@ -221,7 +222,7 @@ def test_invalid_hub_project_name_returns_error_envelope(
         )
 
     result = asyncio.run(_scenario())
-    envelope = json.loads(result[0].text)
+    envelope = json.loads(result.content[0].text)
     assert "error" in envelope, (
         f"invalid hub project must return error envelope; got: {envelope!r}"
     )

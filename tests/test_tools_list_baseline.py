@@ -38,8 +38,12 @@ def _current_tools_json() -> str:
     async def _scenario():
         mcp = build_mcp_app(hub_enabled=False)
         tools = await mcp.list_tools()
+        # FastMCP v3 list_tools() returns FunctionTool objects;
+        # to_mcp_tool() converts to the mcp.types.Tool wire shape.
         return [
-            json.loads(t.model_dump_json(exclude_none=True, by_alias=True))
+            json.loads(t.to_mcp_tool().model_dump_json(
+                exclude_none=True, by_alias=True,
+            ))
             for t in tools
         ]
 

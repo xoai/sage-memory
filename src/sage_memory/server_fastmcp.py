@@ -1,26 +1,24 @@
 """FastMCP factory for sage-memory's MCP server.
 
-M1.1a of the 0.13.0 team-MCP-transports cycle ports tool registration
+M1.1a of the 0.13.0 team-MCP-transports cycle ported tool registration
 from the low-level ``mcp.server.Server`` API to ``FastMCP``. The
 existing ``server.py:run()`` is unchanged at this milestone — the
 factory only PRODUCES a FastMCP instance that publishes byte-equal
 ``tools/list`` output against the pre-migration baseline.
 
-Why ``PassthroughFuncMetadata`` exists: sage-memory's tool schemas
-are hand-crafted (descriptions, enums, defaults, ordering) and have
-been treated as the contract by every MCP client integration since
-0.5.x. FastMCP's default ``add_tool`` derives the schema from each
-handler's Python signature via Pydantic, which produces a structurally
-different JSON-schema. To preserve the existing wire schemas verbatim,
-this module bypasses Pydantic schema derivation: it constructs ``Tool``
-objects with ``parameters`` set directly from the existing
-``server.TOOLS`` ``inputSchema``, and a passthrough metadata adapter
-that forwards incoming arguments to the handler via ``**kwargs`` —
-matching the dispatch shape used by the low-level server today
-(``handler(**(arguments or {}))``).
+Why hand-crafted ``parameters`` matter: sage-memory's tool schemas are
+hand-crafted (descriptions, enums, defaults, ordering) and have been
+treated as the contract by every MCP client integration since 0.5.x.
+FastMCP v3's ``FunctionTool`` accepts a ``parameters`` dict that is
+published verbatim, and a handler with a ``(**kwargs)`` signature
+receives incoming arguments unvalidated — matching the dispatch shape
+used by the low-level server (``handler(**(arguments or {}))``). (On
+FastMCP 1.0 this required a ``PassthroughFuncMetadata`` subclass and a
+private ``_tool_manager._tools`` insertion; v3 makes both unnecessary.)
 
 See ADR-007 rev 2 for the migration rationale and the FastMCP
-bail-out decision rule that governs introspection-diff failures.
+bail-out decision rule that governs introspection-diff failures, and
+decisions.md 2026-07-29 for the FastMCP 3.x vs mcp 2.x direction call.
 """
 
 from __future__ import annotations
@@ -28,15 +26,10 @@ from __future__ import annotations
 import json
 import logging
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Awaitable, Callable
+from typing import Any, AsyncIterator, Callable
 
-from pydantic import ConfigDict
-from mcp.server.fastmcp import FastMCP
-from mcp.server.fastmcp.tools.base import Tool
-from mcp.server.fastmcp.utilities.func_metadata import (
-    ArgModelBase,
-    FuncMetadata,
-)
+from fastmcp import FastMCP
+from fastmcp.tools.function_tool import FunctionTool
 from mcp.types import TextContent
 
 from . import db as _db
@@ -81,62 +74,24 @@ def _shutdown_trace(stage: str) -> None:
         pass
 
 
-class _PassthroughArgsModel(ArgModelBase):
-    """Permissive arg model — published schema lives on ``Tool.parameters``."""
-
-    model_config = ConfigDict(extra="allow")
-
-
-class PassthroughFuncMetadata(FuncMetadata):
-    """Calls the handler with the raw incoming arguments as kwargs.
-
-    The standard ``FuncMetadata.call_fn_with_arg_validation`` validates
-    incoming args against a Pydantic model derived from the handler
-    signature, then calls ``fn(**parsed_kwargs)``. That validation
-    would reject anything the hand-crafted schema permits but the
-    derived schema doesn't (and vice versa). We skip it and mirror
-    the existing low-level ``handler(**(arguments or {}))`` dispatch
-    so call-time behavior matches the pre-migration path exactly.
-    """
-
-    async def call_fn_with_arg_validation(
-        self,
-        fn: Callable[..., Any | Awaitable[Any]],
-        fn_is_async: bool,
-        arguments_to_validate: dict[str, Any],
-        arguments_to_pass_directly: dict[str, Any] | None,
-    ) -> Any:
-        if arguments_to_pass_directly:
-            # sage-memory handlers don't declare a FastMCP Context kwarg.
-            # If a future tool does, register it via the standard add_tool
-            # path rather than this passthrough.
-            raise RuntimeError(
-                "PassthroughFuncMetadata does not support context injection"
-            )
-        kwargs = arguments_to_validate or {}
-        if fn_is_async:
-            return await fn(**kwargs)
-        return fn(**kwargs)
-
-
 def _build_passthrough_tool(
     name: str,
     description: str,
     parameters: dict[str, Any],
     fn: Callable[..., Any],
-) -> Tool:
-    """Build a ``Tool`` whose published schema is the hand-crafted one."""
-    import inspect
+) -> FunctionTool:
+    """Build a ``FunctionTool`` whose published schema is the hand-crafted one.
 
-    fn_meta = PassthroughFuncMetadata(arg_model=_PassthroughArgsModel)
-    return Tool(
+    FastMCP v3 publishes ``parameters`` verbatim in tools/list, and the
+    wrapped handler's ``(**kwargs)`` signature receives incoming arguments
+    without Pydantic-derived validation — the passthrough semantics the
+    pre-v3 ``PassthroughFuncMetadata`` hack existed to force.
+    """
+    return FunctionTool(
         fn=fn,
         name=name,
         description=description,
         parameters=parameters,
-        fn_metadata=fn_meta,
-        is_async=inspect.iscoroutinefunction(fn),
-        context_kwarg=None,
     )
 
 
@@ -190,7 +145,9 @@ def _wrap_handler_for_dispatch(
                 hub_projects = kwargs.pop("hub_projects", None)
                 if hub_enabled and hub_projects is not None:
                     # M2 review M3: schema declares list[str] but
-                    # PassthroughFuncMetadata skips Pydantic validation.
+                    # FastMCP v3's TypeAdapter over the handler's
+                    # (**kwargs) signature is a passthrough — no
+                    # Pydantic validation of argument types.
                     # Type-check here so a malformed payload returns a
                     # clear error envelope rather than the confusing
                     # set-of-characters ValueError fan_out_search would
@@ -395,16 +352,15 @@ async def server_lifespan(_: FastMCP) -> AsyncIterator[dict[str, Any]]:
 
 
 def build_mcp_app(
-    host: str = "127.0.0.1",
-    port: int = 3333,
     hub_enabled: bool = False,
 ) -> FastMCP:
     """Construct a FastMCP app with sage-memory's tools + lifespan.
 
     M1.1b wires ``server_lifespan`` so embedder bootstrap, worker
     probe, and cleanup fire automatically around the MCP server's
-    request loop. ``hub_enabled`` is accepted for forward compatibility
-    with M2; at this milestone it's a no-op.
+    request loop. Transport settings (host/port) are NOT accepted here:
+    FastMCP v3 keeps the server definition transport-independent —
+    callers pass them to ``run()``/``run_async()`` instead.
     """
     # Imported lazily to avoid a circular import: server.py imports from
     # the handler modules (.store, .search, .graph, .db) and exports
@@ -413,8 +369,6 @@ def build_mcp_app(
 
     mcp = FastMCP(
         name="sage-memory",
-        host=host,
-        port=port,
         lifespan=server_lifespan,
     )
 
@@ -430,7 +384,7 @@ def build_mcp_app(
             parameters=parameters,
             fn=wrapped,
         )
-        mcp._tool_manager._tools[tool_def.name] = tool
+        mcp.add_tool(tool)
 
     # /health endpoint (M1.6). Active only on SSE / HTTP transports —
     # stdio has no HTTP route surface. The route returning 200 IS the
