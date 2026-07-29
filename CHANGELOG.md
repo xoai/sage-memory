@@ -6,6 +6,37 @@ All notable changes to sage-memory will be documented in this file.
 
 ### Added
 
+- ADR reconstructions (P1-6, SM-DOC-02): all eight ADRs referenced in
+  code comments (001–005, 007–010) reconstructed from the citing
+  comments into Context/Decision/Consequences/Status documents, with
+  an index and milestone/review-tag glossary. Kept internal at
+  `.sage/docs/adr/` (dev-facing, not published). Gaps where rationale
+  was never recorded are marked explicitly rather than invented.
+
+### Fixed
+
+- Internal-only documentation location: `docs/adr/` and
+  `docs/design/` were incorrectly committed to the published tree;
+  they now live in gitignored `.sage/docs/` with no public files
+  linking to them.
+
+- README now states the true default state (P1-5, SM-DOC-01): a fresh
+  install with no extras/keys runs **BM25 only** (the 97.2% R@5 free
+  path) — the local TF-IDF embedder sits below the vector gate and
+  the graph channel is empty until entities exist (by design, with a
+  byte-for-byte 2-channel fast path). New "What runs by default"
+  table maps each extra/key to the channel it unlocks; drift test
+  added.
+- Search-path observability (P1-4, SM-REL-02): a failing retrieval
+  channel is no longer indistinguishable from an empty one. Channel
+  legs (bm25/vector/graph) are guarded at the call site — failures
+  degrade to an empty leg + a `warning` log carrying the channel and
+  a short query hash (never the query text); `_vec_search*` previously
+  had NO guard, so a vec-channel error killed the whole search. The
+  access-tracking cluster stays non-fatal but is debug-logged and
+  counted (`_ACCESS_FLUSH_FAILURES`). Public MCP response shape
+  unchanged (pinned by test).
+### Performance
 - Embedder ergonomics (P2-2, SM-DOC-01 capability half):
   `sage-memory embedder use <fastembed|openai|voyage|cohere|local>`
   — validates the tier (import probe / env key; never prompts for
