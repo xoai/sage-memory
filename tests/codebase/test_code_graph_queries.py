@@ -1,6 +1,6 @@
 """P2-1 — Structural code-graph query tests (SM-CAP-01).
 
-Written tests-first per 06-spec §P2-1 + docs/design/code-graph-queries.md.
+Written tests-first per 06-spec §P2-1 + the (internal) design brief.
 Fixtures use REAL extraction via scan() on small Go projects — no mocks.
 
 Contracts pinned:

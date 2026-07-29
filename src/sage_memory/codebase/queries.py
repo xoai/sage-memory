@@ -5,7 +5,7 @@ Exposes the code graph persisted by ``scan-codebase``
 queries: ``find_path``, ``affected``, ``hubs``. No LLM, no
 embeddings, no new dependencies — SQL + bounded in-memory BFS.
 
-Design: ``docs/design/code-graph-queries.md``. Load-bearing rule:
+Design: ``.sage/docs/design/code-graph-queries.md`` (internal). Load-bearing rule:
 ``resolved`` edges (``target_symbol_id IS NOT NULL``) are facts;
 ``unresolved`` edges are name-matches — ``find_path`` uses resolved
 edges only (a path through a guess is invented provenance), while
