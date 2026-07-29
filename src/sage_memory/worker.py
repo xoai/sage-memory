@@ -216,6 +216,7 @@ class Worker:
         conn = _open_worker_conn(self._db_path)
         try:
             self._startup_recovery(conn)
+            self._clear_crash_marker(conn)
             deadline = time.time() + timeout_s
             processed = 0
             while processed < max_iterations and time.time() < deadline:
@@ -248,9 +249,23 @@ class Worker:
     # ─── Thread body ─────────────────────────────────────────────
 
     def _run(self) -> None:
+        # P1-3 (SM-REL-01): top-level crash wrapper. Previously an
+        # unhandled exception here killed the thread with only
+        # threading.excepthook as witness — silent death. Now: log
+        # loudly AND record the reason in worker_state so
+        # `worker --status` can surface it. The thread still exits —
+        # a crashed worker must not spin — but never unobserved.
+        try:
+            self._run_inner()
+        except Exception as e:
+            logger.exception("worker: crashed: %s", e)
+            self._mark_crashed(f"{type(e).__name__}: {e}")
+
+    def _run_inner(self) -> None:
         conn = _open_worker_conn(self._db_path)
         try:
             self._startup_recovery(conn)
+            self._clear_crash_marker(conn)
             conn.close()  # release file lock before maybe_prune opens its own
             # M5 T0: prune on startup. Opens its own conn (idempotent).
             self.maybe_prune()
@@ -270,6 +285,34 @@ class Worker:
                 self._dispatch(conn, row)
         finally:
             conn.close()
+
+    def _mark_crashed(self, reason: str) -> None:
+        """Record the crash in worker_state (best-effort — a broken
+        DB must not mask the original error)."""
+        try:
+            conn = _open_worker_conn(self._db_path)
+            try:
+                conn.execute(
+                    "UPDATE worker_state SET last_error = ?, "
+                    "last_error_at = ? WHERE id = 1",
+                    (reason, time.time()),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception:
+            logger.exception(
+                "worker: failed to record crash marker in worker_state"
+            )
+
+    @staticmethod
+    def _clear_crash_marker(conn) -> None:
+        """A healthy startup clears any previous crash record."""
+        conn.execute(
+            "UPDATE worker_state SET last_error = NULL, "
+            "last_error_at = NULL WHERE id = 1 AND last_error IS NOT NULL"
+        )
+        conn.commit()
 
     def _startup_recovery(self, conn) -> None:
         """Reset stale 'running' rows back to 'pending' (ADR-003)."""
@@ -436,9 +479,18 @@ def _open_worker_conn(db_path: str) -> sqlite3.Connection:
     Bypasses the module-level `_connections` cache in db.py so the
     worker thread genuinely has its own connection (per ADR-003
     §Failure Modes "worker uses its own SQLite connection").
-    Mirrors `db._open` pragmas/extensions but does NOT run migrations
-    — the DB must already be migrated by the time the worker starts.
+    Mirrors `db._open` pragmas/extensions.
+
+    P1-3 (SM-REL-01): runs the same idempotent `_migrate` the server
+    uses. Previously this deliberately skipped migrations on the
+    assumption "the DB must already be migrated" — but a Worker can
+    be handed a path whose file was just created EMPTY by
+    sqlite3.connect, and `_startup_recovery` then died on
+    `no such table: extraction_queue`, killing the thread unobserved
+    (surfaced in CI as PytestUnhandledThreadExceptionWarning).
     """
+    from .db import _migrate
+
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode = WAL")
@@ -448,4 +500,5 @@ def _open_worker_conn(db_path: str) -> sqlite3.Connection:
     conn.enable_load_extension(True)
     sqlite_vec.load(conn)
     conn.enable_load_extension(False)
+    _migrate(conn)
     return conn
