@@ -461,6 +461,91 @@ TOOLS = [
             },
         },
     ),
+    # P2-1 (SM-CAP-01): structural code-graph queries. ADDITIVE —
+    # the existing 10 tools are untouched (invariant 4). All three
+    # require the [codebase] extra and a prior scan-codebase run.
+    types.Tool(
+        name="sage_memory_code_path",
+        description=(
+            "Shortest call/import path between two code symbols over "
+            "the RESOLVED edges of the scanned code graph (name-matched "
+            "unresolved edges are never used as hops — a path through "
+            "a guess would be false provenance). Ambiguous names return "
+            "candidates instead of guessing. Requires a prior "
+            "sage_memory_scan_codebase run."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "a": {
+                    "type": "string",
+                    "description": "Source symbol (name or qualified name).",
+                },
+                "b": {
+                    "type": "string",
+                    "description": "Target symbol (name or qualified name).",
+                },
+                "max_depth": {
+                    "type": "integer", "default": 16,
+                    "description": "BFS depth cap (max 16).",
+                },
+            },
+            "required": ["a", "b"],
+        },
+    ),
+    types.Tool(
+        name="sage_memory_code_affected",
+        description=(
+            "What depends on a code symbol (reverse traversal of the "
+            "scanned code graph) — the 'what breaks if I change this' "
+            "query. Grouped by relation kind with file:line; resolved "
+            "edges are facts, unresolved edges are labelled name-match. "
+            "Requires a prior sage_memory_scan_codebase run."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "symbol": {
+                    "type": "string",
+                    "description": "Symbol to analyze (name or qualified name).",
+                },
+                "depth": {
+                    "type": "integer", "default": 2,
+                    "description": "Inbound traversal depth (max 8).",
+                },
+                "resolved_only": {
+                    "type": "boolean", "default": False,
+                    "description": (
+                        "Exclude unresolved name-match edges."
+                    ),
+                },
+            },
+            "required": ["symbol"],
+        },
+    ),
+    types.Tool(
+        name="sage_memory_code_hubs",
+        description=(
+            "Most-connected code symbols (architectural hot spots) "
+            "with in/out degree split. Requires a prior "
+            "sage_memory_scan_codebase run."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer", "default": 20,
+                    "description": "Max hubs returned (1-200).",
+                },
+                "resolved_only": {
+                    "type": "boolean", "default": False,
+                    "description": (
+                        "Count only resolved edges in the degree."
+                    ),
+                },
+            },
+        },
+    ),
 ]
 
 
@@ -535,6 +620,72 @@ def _scan_failure_envelope(message: str) -> dict:
 
 
 # Dict-based dispatch
+def _code_graph_failure(message: str) -> dict:
+    return {"success": False, "message": message}
+
+
+def _code_graph_conn():
+    """Shared gate for the P2-1 code-graph tools: [codebase] extra +
+    active project DB, mirroring scan_codebase's failure-envelope
+    convention."""
+    from .db import get_project_db
+    conn = get_project_db()
+    return conn
+
+
+def code_path(a: str, b: str, max_depth: int = 16) -> dict:
+    """MCP handler for ``sage_memory_code_path`` (P2-1)."""
+    try:
+        from .codebase.queries import find_path
+    except ImportError:
+        return _code_graph_failure(
+            "code_path requires the [codebase] extra. "
+            "Install with: pip install 'sage-memory[codebase]'."
+        )
+    conn = _code_graph_conn()
+    if conn is None:
+        return _code_graph_failure(
+            "no active project — call sage_memory_set_project first"
+        )
+    return find_path(conn, a, b, max_depth=max_depth)
+
+
+def code_affected(
+    symbol: str, depth: int = 2, resolved_only: bool = False,
+) -> dict:
+    """MCP handler for ``sage_memory_code_affected`` (P2-1)."""
+    try:
+        from .codebase.queries import affected
+    except ImportError:
+        return _code_graph_failure(
+            "code_affected requires the [codebase] extra. "
+            "Install with: pip install 'sage-memory[codebase]'."
+        )
+    conn = _code_graph_conn()
+    if conn is None:
+        return _code_graph_failure(
+            "no active project — call sage_memory_set_project first"
+        )
+    return affected(conn, symbol, depth=depth, resolved_only=resolved_only)
+
+
+def code_hubs(limit: int = 20, resolved_only: bool = False) -> dict:
+    """MCP handler for ``sage_memory_code_hubs`` (P2-1)."""
+    try:
+        from .codebase.queries import hubs
+    except ImportError:
+        return _code_graph_failure(
+            "code_hubs requires the [codebase] extra. "
+            "Install with: pip install 'sage-memory[codebase]'."
+        )
+    conn = _code_graph_conn()
+    if conn is None:
+        return _code_graph_failure(
+            "no active project — call sage_memory_set_project first"
+        )
+    return hubs(conn, limit=limit, resolved_only=resolved_only)
+
+
 HANDLERS = {
     "sage_memory_set_project": set_project,
     "sage_memory_store": store,
@@ -545,6 +696,9 @@ HANDLERS = {
     "sage_memory_link": link,
     "sage_memory_graph": graph,
     "sage_memory_scan_codebase": scan_codebase,
+    "sage_memory_code_path": code_path,
+    "sage_memory_code_affected": code_affected,
+    "sage_memory_code_hubs": code_hubs,
 }
 
 

@@ -37,31 +37,43 @@ All notable changes to sage-memory will be documented in this file.
   counted (`_ACCESS_FLUSH_FAILURES`). Public MCP response shape
   unchanged (pinned by test).
 ### Performance
+- Structural code-graph queries (P2-1, SM-CAP-01): `path`,
+  `affected`, `hubs` over the scanned code graph — deterministic,
+  no LLM/embeddings. Surfaces: `sage-memory code {path, affected,
+  hubs}` CLI and three **additive** MCP tools
+  (`sage_memory_code_path`, `sage_memory_code_affected`,
+  `sage_memory_code_hubs`; tools/list grows 10 → 13, existing tools
+  byte-identical). `path` traverses resolved edges only (unresolved
+  name-matches are never hops); `affected`/`hubs` label unresolved
+  edges distinctly with a `--resolved-only` filter. Traversals are
+  cycle-safe and cap-bounded with honest `truncated` signalling.
+  Migration `012_code_graph_indexes.sql` adds `code_symbols(name)` +
+  `(file_memory_id)` indexes. Measured on the 35K-relation corpus:
+  affected <1ms, hubs 10ms, path <1ms (targets 200/500/200ms).
 
-- Resolver memoization (P1-2, descoped by measurement): profiling the
-  post-P1-1 cold scan showed raw tree-sitter parsing at 0.25s of a
-  1.5s scan — a process/thread pool (the P1-2 spec) would save ≤0.5s
-  while adding real concurrency risk, and a threads probe showed zero
-  parse speedup (0.12s serial vs threaded on 200 files). Per the
-  spec's own "choose the executor by measurement" rule, no pool was
-  built; the ≥3× cold-scan goal was already met 19× by P1-1. Instead,
-  the Go/Java sibling-directory lookup is memoized per resolve run
-  (59K calls on the corpus) and per-file directory strings are
-  precomputed — cold scan 1.5s → 1.3s, identical DB state.
+- Cross-tool code-graph import (P2-4, SM-CAP-01 adjacent):
+  `sage-memory code import <graph.json> [--tool <name>]` ingests an
+  external tool's deterministic code graph (JSON nodes/edges) into
+  `code_symbols`/`code_relations` — pure file artifact, no dependency
+  on the external package (incompatible tree-sitter pins). Provenance
+  via migration `013_relation_source.sql` (`source` column, native
+  rows keep the `'native'` default; imports tagged
+  `'import:<tool>'`). Confidence mapping never silently upgrades:
+  only explicit fact labels become `resolved`. Re-import replaces
+  that source's rows only; native and other tools' rows untouched.
+  Imported edges are visible to the P2-1 `affected`/`hubs` queries
+  with correct confidence labels.
 
-- Incremental rescan (P1-1; SM-PERF-01, SM-PERF-03): the resolve pass
-  no longer re-reads or re-parses unchanged files. Relations for
-  changed files are reused from the scan pass; cross-file dependents
-  are re-resolved from the DB; rows orphaned by the `ON DELETE
-  CASCADE` on changed files' symbols are snapshotted and restored.
-  Resolver helpers (`_siblings_in_same_directory`, TS/Rust rel_path
-  lookups) use precomputed maps instead of per-relation O(files)
-  scans — measured as the dominant cost on the 471-file Go corpus:
-  cold scan 29.1s → 1.5s; no-change rescan 27.9s → 0.2s (doc baseline
-  73.2s/84.4s on slower hardware). Escape hatch: `--full-resolve`
-  restores the old disk re-parse path (`--force` implies it).
-  Migration `010_unresolved_relations_index.sql` adds a partial index
-  on unresolved `code_relations.target_name`.
+### Changed
+
+- SQL hygiene (P2-3, SM-QUAL-01 — **not a vulnerability fix**):
+  identifiers interpolated into SQL f-strings in `cli_reindex.py`
+  (vec backup tables) now pass a strict `^[A-Za-z_][A-Za-z0-9_]*$`
+  whitelist (`db.require_sql_identifier`), and the
+  `PRAGMA application_id` value in `cli_dedup.py` is `int()`-cast.
+  The interpolated values were always internal constants — no
+  injection was reachable; this keeps scanners quiet and makes
+  future unsafe edits fail loudly.
 
 ### Security
 

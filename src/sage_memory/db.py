@@ -38,6 +38,26 @@ SAGE_DIR = ".sage-memory"
 DB_NAME = "memory.db"
 
 
+# ─── P2-3 (SM-QUAL-01) — SQL identifier whitelisting ──────────────
+#
+# Hygiene guard for the few places SQL is built with f-string
+# IDENTIFIERS (cli_reindex backup tables, cli_dedup PRAGMA). Values
+# there are internal constants — no injection is currently reachable
+# — but a future edit passing an unsafe value now fails loudly here
+# instead of silently executing it. Parameters still always use `?`
+# binding; this guard is ONLY for identifiers, which cannot be bound.
+
+_SQL_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def require_sql_identifier(name: str) -> str:
+    """Return `name` unchanged iff it is a safe SQL identifier
+    (strict `^[A-Za-z_][A-Za-z0-9_]*$`); raise ValueError otherwise."""
+    if not _SQL_IDENT_RE.match(name):
+        raise ValueError(f"invalid SQL identifier: {name!r}")
+    return name
+
+
 def find_project_root(start: Path | None = None) -> Path | None:
     """Walk up from start (default: cwd) looking for project markers.
 
