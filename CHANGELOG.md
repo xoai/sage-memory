@@ -6,12 +6,19 @@ All notable changes to sage-memory will be documented in this file.
 
 ### Added
 
-- `docs/adr/` (P1-6, SM-DOC-02): all eight ADRs referenced in code
-  comments (001–005, 007–010) reconstructed from the citing comments
-  into Context/Decision/Consequences/Status documents, with an index
-  and milestone/review-tag glossary. Gaps where rationale was never
-  recorded are marked explicitly rather than invented.
+- ADR reconstructions (P1-6, SM-DOC-02): all eight ADRs referenced in
+  code comments (001–005, 007–010) reconstructed from the citing
+  comments into Context/Decision/Consequences/Status documents, with
+  an index and milestone/review-tag glossary. Kept internal at
+  `.sage/docs/adr/` (dev-facing, not published). Gaps where rationale
+  was never recorded are marked explicitly rather than invented.
+
 ### Fixed
+
+- Internal-only documentation location: `docs/adr/` and
+  `docs/design/` were incorrectly committed to the published tree;
+  they now live in gitignored `.sage/docs/` with no public files
+  linking to them.
 
 - README now states the true default state (P1-5, SM-DOC-01): a fresh
   install with no extras/keys runs **BM25 only** (the 97.2% R@5 free
