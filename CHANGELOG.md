@@ -6,75 +6,17 @@ All notable changes to sage-memory will be documented in this file.
 
 ### Added
 
-- `docs/adr/` (P1-6, SM-DOC-02): all eight ADRs referenced in code
-  comments (001–005, 007–010) reconstructed from the citing comments
-  into Context/Decision/Consequences/Status documents, with an index
-  and milestone/review-tag glossary. Gaps where rationale was never
-  recorded are marked explicitly rather than invented.
-### Fixed
-
-- README now states the true default state (P1-5, SM-DOC-01): a fresh
-  install with no extras/keys runs **BM25 only** (the 97.2% R@5 free
-  path) — the local TF-IDF embedder sits below the vector gate and
-  the graph channel is empty until entities exist (by design, with a
-  byte-for-byte 2-channel fast path). New "What runs by default"
-  table maps each extra/key to the channel it unlocks; drift test
-  added.
-- Search-path observability (P1-4, SM-REL-02): a failing retrieval
-  channel is no longer indistinguishable from an empty one. Channel
-  legs (bm25/vector/graph) are guarded at the call site — failures
-  degrade to an empty leg + a `warning` log carrying the channel and
-  a short query hash (never the query text); `_vec_search*` previously
-  had NO guard, so a vec-channel error killed the whole search. The
-  access-tracking cluster stays non-fatal but is debug-logged and
-  counted (`_ACCESS_FLUSH_FAILURES`). Public MCP response shape
-  unchanged (pinned by test).
-### Performance
-
-- Resolver memoization (P1-2, descoped by measurement): profiling the
-  post-P1-1 cold scan showed raw tree-sitter parsing at 0.25s of a
-  1.5s scan — a process/thread pool (the P1-2 spec) would save ≤0.5s
-  while adding real concurrency risk, and a threads probe showed zero
-  parse speedup (0.12s serial vs threaded on 200 files). Per the
-  spec's own "choose the executor by measurement" rule, no pool was
-  built; the ≥3× cold-scan goal was already met 19× by P1-1. Instead,
-  the Go/Java sibling-directory lookup is memoized per resolve run
-  (59K calls on the corpus) and per-file directory strings are
-  precomputed — cold scan 1.5s → 1.3s, identical DB state.
-
-- Incremental rescan (P1-1; SM-PERF-01, SM-PERF-03): the resolve pass
-  no longer re-reads or re-parses unchanged files. Relations for
-  changed files are reused from the scan pass; cross-file dependents
-  are re-resolved from the DB; rows orphaned by the `ON DELETE
-  CASCADE` on changed files' symbols are snapshotted and restored.
-  Resolver helpers (`_siblings_in_same_directory`, TS/Rust rel_path
-  lookups) use precomputed maps instead of per-relation O(files)
-  scans — measured as the dominant cost on the 471-file Go corpus:
-  cold scan 29.1s → 1.5s; no-change rescan 27.9s → 0.2s (doc baseline
-  73.2s/84.4s on slower hardware). Escape hatch: `--full-resolve`
-  restores the old disk re-parse path (`--force` implies it).
-  Migration `010_unresolved_relations_index.sql` adds a partial index
-  on unresolved `code_relations.target_name`.
-
-### Security
-
-- Transport security (P0-3; SM-SEC-01/02/03, SM-DOC-03):
-  - **Bearer auth** for `sse`/`http` transports: `--token` flag or
-    `SAGE_MEMORY_TOKEN` env; every request must carry
-    `Authorization: Bearer <token>` (`hmac.compare_digest`), else 401.
-  - **Refuse-start rule**: non-loopback binds (including `0.0.0.0`
-    and blank/wildcard hosts) without a token now exit with a clear
-    error. Loopback and stdio stay zero-config.
-  - **Host allowlist + Origin validation** (403): loopback spellings
-    plus `--allowed-host` (repeatable) / `SAGE_ALLOWED_HOSTS`
-    (os.pathsep-separated). Defeats DNS rebinding and browser
-    cross-origin drives.
-  - **`set_project` scoping**: only the detected project root subtree
-    (or launch directory when no markers exist) plus
-    `SAGE_ALLOWED_ROOTS` is accepted; `~/.ssh`, `~/.gnupg`, `~/.aws`,
-    `/etc` are always denied. Containment uses resolved-path
-    `Path.is_relative_to` (sibling-prefix paths rejected).
-  - New `SECURITY.md` (threat model, reporting).
+- Embedder ergonomics (P2-2, SM-DOC-01 capability half):
+  `sage-memory embedder use <fastembed|openai|voyage|cohere|local>`
+  — validates the tier (import probe / env key; never prompts for
+  secrets), then runs the existing tested backup + dim-migration +
+  re-embed flow. `use local` is the downgrade path to the zero-dep
+  floor. `sage-memory status` now prints an actionable next step when
+  memories are stale (`embedder use fastembed` on the local floor,
+  `reindex --embeddings` otherwise) — auto-enqueue deliberately
+  rejected. ANN evaluated with a recorded measurement (brute-force
+  cosine: 21.5ms at 100K vectors, far under the 200ms budget) and
+  NOT built. Zero-dep floor unchanged.
 
 ### Changed
 

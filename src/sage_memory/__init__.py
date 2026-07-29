@@ -75,6 +75,11 @@ def main():
         from .cli_scan_codebase import run_scan_codebase
         sys.exit(run_scan_codebase(argv[1:]))
 
+    if argv[0] == "embedder":
+        # P2-2: one-command embedder upgrade path.
+        from .cli_embedder import run_embedder
+        sys.exit(run_embedder(argv[1:]))
+
     if argv[0] == "worker":
         # `worker --status` is the only flag in M3a; `worker --help`
         # prints the worker subcommand's help; bare `worker` shows usage.
