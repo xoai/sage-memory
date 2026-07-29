@@ -75,6 +75,11 @@ def main():
         from .cli_scan_codebase import run_scan_codebase
         sys.exit(run_scan_codebase(argv[1:]))
 
+    if argv[0] == "embedder":
+        # P2-2: one-command embedder upgrade path.
+        from .cli_embedder import run_embedder
+        sys.exit(run_embedder(argv[1:]))
+
     if argv[0] == "code":
         # P2-1: structural code-graph queries (path/affected/hubs).
         from .cli_code import run_code
