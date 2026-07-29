@@ -76,6 +76,16 @@ All notable changes to sage-memory will be documented in this file.
 
 ### Fixed
 
+- Worker startup crash-safety (P1-3, SM-REL-01): the background worker
+  could die silently on a fresh or partially-migrated DB
+  (`no such table: extraction_queue`, previously visible only as a
+  pytest thread-exception warning). The worker's own connection now
+  runs the same idempotent migrations as the server; the thread body
+  has a top-level crash wrapper that logs loudly and records the
+  reason in `worker_state.last_error` (migration
+  `011_worker_crash_state.sql`), cleared on the next healthy start;
+  `sage-memory worker --status` surfaces `⚠ worker crashed: <reason>`.
+
 - Docker image size budgets re-based to CI-measured reality
   (slim ~210MB / full ~455MB uncompressed; previously aspirational
   60MB/350MB targets that predated the v0.13.1 FastMCP dependency
