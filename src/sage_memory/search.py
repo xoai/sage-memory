@@ -35,6 +35,22 @@ from . import rerank as rerank_mod
 
 logger = logging.getLogger("sage-memory")
 
+
+# P1-4 (SM-REL-02): retrieval-channel failures must be distinguishable
+# from empty channels. Every leg guard logs the channel + a short
+# query hash — NEVER the full query text (user content must not leak
+# into warning logs).
+def _qid(query: str) -> str:
+    import hashlib
+    return hashlib.sha1(query.encode("utf-8", "replace")).hexdigest()[:8]
+
+
+def _log_channel_error(channel: str, query: str, exc: Exception) -> None:
+    logger.warning(
+        "search: %s channel failed (qid=%s): %s: %s",
+        channel, _qid(query), type(exc).__name__, exc,
+    )
+
 # RRF constant
 _RRF_K = 60
 
@@ -121,6 +137,10 @@ _MAX_DOC_FREQUENCY_RATIO = 0.20
 # Batched access tracking
 _access_buffer: list[tuple[str, float, object]] = []  # (id, timestamp, db)
 _ACCESS_FLUSH_SIZE = 20
+# P1-4 (SM-REL-02): monotonic counter of access-tracking failures so
+# a systematic problem is visible even when individual debug lines
+# are filtered out.
+_ACCESS_FLUSH_FAILURES = 0
 
 # FTS stopwords
 _STOP = frozenset(
@@ -268,25 +288,32 @@ def search(*, query: str, scope: str = "project",
         # memories_vec/chunks_vec via reembed tasks enqueued at write
         # time. Search is now strictly read-only.
 
-        # FTS5 search — memories (gated by active_channels)
+        # FTS5 search — memories (gated by active_channels). P1-4: a
+        # failing leg degrades to empty + a warning, never a crash and
+        # never silence.
         if use_bm25:
-            fts_ids, row_cache = _fts_search(
-                db, query, candidates_per_leg, tag_where, tag_params,
-            )
-            chunk_fts_ids, chunk_rows = _fts_search_chunks(
-                db, query, candidates_per_leg, tag_where, tag_params,
-            )
-            row_cache.update(chunk_rows)
-            # M4 (T4): fold each dedup'd lex variant as an additional
-            # FTS5 query. Variants extend the bm25 channel's input
-            # list (RRF naturally handles dupes via positional decay).
-            for variant in lex_variants:
-                var_ids, var_rows = _fts_search(
-                    db, variant, candidates_per_leg,
-                    tag_where, tag_params,
+            try:
+                fts_ids, row_cache = _fts_search(
+                    db, query, candidates_per_leg, tag_where, tag_params,
                 )
-                fts_ids = fts_ids + var_ids
-                row_cache.update(var_rows)
+                chunk_fts_ids, chunk_rows = _fts_search_chunks(
+                    db, query, candidates_per_leg, tag_where, tag_params,
+                )
+                row_cache.update(chunk_rows)
+                # M4 (T4): fold each dedup'd lex variant as an additional
+                # FTS5 query. Variants extend the bm25 channel's input
+                # list (RRF naturally handles dupes via positional decay).
+                for variant in lex_variants:
+                    var_ids, var_rows = _fts_search(
+                        db, variant, candidates_per_leg,
+                        tag_where, tag_params,
+                    )
+                    fts_ids = fts_ids + var_ids
+                    row_cache.update(var_rows)
+            except Exception as e:
+                _log_channel_error("bm25", query, e)
+                fts_ids, chunk_fts_ids = [], []
+                row_cache = {}
         else:
             fts_ids, chunk_fts_ids = [], []
             row_cache = {}
@@ -294,37 +321,44 @@ def search(*, query: str, scope: str = "project",
         # Vec search — memories. M4 (T4): use vec_query_str (the
         # expand-derived vec form) when expand fired; falls back to
         # original `query` otherwise (M3b parity on free path).
+        # P1-4: _vec_search* had NO exception guard — a vec-channel
+        # failure (missing vec table, dim mismatch) killed the whole
+        # search. Now it degrades to empty + a warning.
         vec_ids: list[str] = []
-        if use_vec and query_vec and strategy != "keyword":
-            effective_vec = (
-                embedder.embed(vec_query_str)
-                if vec_query_str != query else query_vec
-            )
-            vec_ids, vec_rows = _vec_search(
-                db, effective_vec, candidates_per_leg,
-                tag_where, tag_params,
-            )
-            row_cache.update(vec_rows)
-            # M4 (T4): hyde document, when present, produces a
-            # second embedding query that extends the vec channel.
-            if hyde_doc:
-                hyde_vec = embedder.embed(hyde_doc)
-                hyde_ids, hyde_rows = _vec_search(
-                    db, hyde_vec, candidates_per_leg,
-                    tag_where, tag_params,
-                )
-                vec_ids = vec_ids + hyde_ids
-                row_cache.update(hyde_rows)
-
-        # Vec search — chunks (M2). Uses the original query_vec
-        # (chunks don't benefit from vec-query rephrasing; M5 may
-        # revisit).
         chunk_vec_ids: list[str] = []
         if use_vec and query_vec and strategy != "keyword":
-            chunk_vec_ids, chunk_vec_rows = _vec_search_chunks(
-                db, query_vec, candidates_per_leg, tag_where, tag_params,
-            )
-            row_cache.update(chunk_vec_rows)
+            try:
+                effective_vec = (
+                    embedder.embed(vec_query_str)
+                    if vec_query_str != query else query_vec
+                )
+                vec_ids, vec_rows = _vec_search(
+                    db, effective_vec, candidates_per_leg,
+                    tag_where, tag_params,
+                )
+                row_cache.update(vec_rows)
+                # M4 (T4): hyde document, when present, produces a
+                # second embedding query that extends the vec channel.
+                if hyde_doc:
+                    hyde_vec = embedder.embed(hyde_doc)
+                    hyde_ids, hyde_rows = _vec_search(
+                        db, hyde_vec, candidates_per_leg,
+                        tag_where, tag_params,
+                    )
+                    vec_ids = vec_ids + hyde_ids
+                    row_cache.update(hyde_rows)
+
+                # Vec search — chunks (M2). Uses the original query_vec
+                # (chunks don't benefit from vec-query rephrasing; M5 may
+                # revisit).
+                chunk_vec_ids, chunk_vec_rows = _vec_search_chunks(
+                    db, query_vec, candidates_per_leg, tag_where, tag_params,
+                )
+                row_cache.update(chunk_vec_rows)
+            except Exception as e:
+                _log_channel_error("vector", query, e)
+                vec_ids = []
+                chunk_vec_ids = []
 
         if strategy == "keyword":
             vec_ids = []
@@ -336,10 +370,14 @@ def search(*, query: str, scope: str = "project",
         # ranked; we extract just the order for RRF. Gated by
         # active_channels (T3).
         if use_graph:
-            graph_results = graph_channel.graph_proximity(
-                db, query, limit=candidates_per_leg,
-            )
-            graph_ids = [r["memory_id"] for r in graph_results]
+            try:
+                graph_results = graph_channel.graph_proximity(
+                    db, query, limit=candidates_per_leg,
+                )
+                graph_ids = [r["memory_id"] for r in graph_results]
+            except Exception as e:
+                _log_channel_error("graph", query, e)
+                graph_ids = []
         else:
             graph_ids = []
         # Fetch any graph-only memory rows so they can be scored.
@@ -508,9 +546,15 @@ def _annotate_superseded(results, *, dbs_by_label):
                     ORDER BY created_at DESC, rowid DESC""",
                 target_ids,
             ).fetchall()
-        except _sqlite3.Error:
+        except _sqlite3.Error as e:
             # `edges` table may not exist on stripped DBs; never
-            # break search over an annotation lookup.
+            # break search over an annotation lookup. P1-4: was
+            # silent — a systematically broken edges table is now
+            # visible at debug.
+            logger.debug(
+                "search: supersedes annotation lookup failed: %s: %s",
+                type(e).__name__, e,
+            )
             continue
         # First row per target_id wins (rows already ordered by
         # most-recent → setdefault preserves the first hit).
@@ -588,7 +632,13 @@ def _seed_bm25_probe(
             "ORDER BY bm25_score LIMIT ?",
             (fts_q, limit),
         ).fetchall()
-    except Exception:
+    except Exception as e:
+        # P1-4 (SM-REL-02): a probe failure previously read as "no
+        # strong signal" (driving an unnecessary LLM expand call).
+        logger.warning(
+            "search: bm25 probe failed (qid=%s): %s: %s",
+            _qid(query), type(e).__name__, e,
+        )
         return []
     return [(r["id"], float(r["bm25_score"])) for r in rows]
 
@@ -741,7 +791,15 @@ def _fts_search(db, query: str, limit: int,
 
     try:
         rows = db.execute(sql, params).fetchall()
-    except Exception:
+    except Exception as e:
+        # P1-4 (SM-REL-02): leg-level failures were indistinguishable
+        # from an empty leg. Logged at debug — the search()-level
+        # guard logs warning for raised failures; this path covers
+        # malformed-query / missing-table cases that stay non-fatal.
+        logger.debug(
+            "search: fts leg failed (qid=%s): %s: %s",
+            _qid(query), type(e).__name__, e,
+        )
         return [], {}
 
     ids = [r["id"] for r in rows]
@@ -786,8 +844,14 @@ def _build_fts_query(db, query: str) -> str:
             if not filtered and words:
                 filtered = words[:3]
             words = filtered
-    except Exception:
-        pass  # If vocab check fails, use all words
+    except Exception as e:
+        # P1-4: was silent pass. Non-fatal by design (fall back to
+        # all words), now visible at debug.
+        logger.debug(
+            "search: vocab check failed (qid=%s): %s: %s",
+            _qid(query), type(e).__name__, e,
+        )
+    # If vocab check fails, use all words
 
     if not words:
         return ""
@@ -884,7 +948,15 @@ def _fts_search_chunks(db, query: str, limit: int,
 
     try:
         rows = db.execute(sql, params).fetchall()
-    except Exception:
+    except Exception as e:
+        # P1-4 (SM-REL-02): leg-level failures were indistinguishable
+        # from an empty leg. Logged at debug — the search()-level
+        # guard logs warning for raised failures; this path covers
+        # malformed-query / missing-table cases that stay non-fatal.
+        logger.debug(
+            "search: fts leg failed (qid=%s): %s: %s",
+            _qid(query), type(e).__name__, e,
+        )
         return [], {}
 
     ids = [r["id"] for r in rows]
@@ -990,7 +1062,10 @@ def _flush_access(dbs: list[tuple[str, object]]) -> None:
     if len(_access_buffer) < _ACCESS_FLUSH_SIZE:
         return
 
-    # Update all accessed memories in all dbs
+    # Update all accessed memories in all dbs. P1-4 (SM-REL-02):
+    # genuinely non-fatal, but failures are counted + debug-logged so
+    # a systematic problem (locked DB, missing column) is visible.
+    global _ACCESS_FLUSH_FAILURES
     for _, db in dbs:
         for mid, ts, _ in _access_buffer:
             try:
@@ -998,12 +1073,20 @@ def _flush_access(dbs: list[tuple[str, object]]) -> None:
                     "UPDATE memories SET accessed_at = ?, access_count = access_count + 1 WHERE id = ?",
                     (ts, mid),
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                _ACCESS_FLUSH_FAILURES += 1
+                logger.debug(
+                    "search: access-touch update failed: %s: %s",
+                    type(e).__name__, e,
+                )
         try:
             db.commit()
-        except Exception:
-            pass
+        except Exception as e:
+            _ACCESS_FLUSH_FAILURES += 1
+            logger.debug(
+                "search: access-touch commit failed: %s: %s",
+                type(e).__name__, e,
+            )
 
     _access_buffer = []
 
@@ -1012,6 +1095,7 @@ def flush_all_access() -> None:
     """Force-flush access buffer (call on shutdown)."""
     global _access_buffer
     if _access_buffer:
+        global _ACCESS_FLUSH_FAILURES
         for _, db in get_all_dbs():
             for mid, ts, _ in _access_buffer:
                 try:
@@ -1019,10 +1103,18 @@ def flush_all_access() -> None:
                         "UPDATE memories SET accessed_at = ?, access_count = access_count + 1 WHERE id = ?",
                         (ts, mid),
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    _ACCESS_FLUSH_FAILURES += 1
+                    logger.debug(
+                        "search: access flush update failed: %s: %s",
+                        type(e).__name__, e,
+                    )
             try:
                 db.commit()
-            except Exception:
-                pass
+            except Exception as e:
+                _ACCESS_FLUSH_FAILURES += 1
+                logger.debug(
+                    "search: access flush commit failed: %s: %s",
+                    type(e).__name__, e,
+                )
         _access_buffer = []
