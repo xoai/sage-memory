@@ -2,7 +2,8 @@
 #
 # Python 3.12 slim base. Excludes the [neural] extra (fastembed
 # + ONNX runtime + bge-small weights) — first-store warmth pays the
-# download cost on the user's host. Target image size: ≤ 60MB.
+# download cost on the user's host. CI-measured size: ~210MB
+# uncompressed (budget 220MB, tests/docker/test_docker_slim.py).
 #
 # Per ADR-009 §"Scope clarification" the container exposes the MCP
 # server on 3333; reverse-proxy auth is required for non-localhost
