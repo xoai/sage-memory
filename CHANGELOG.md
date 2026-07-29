@@ -4,6 +4,16 @@ All notable changes to sage-memory will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- README now states the true default state (P1-5, SM-DOC-01): a fresh
+  install with no extras/keys runs **BM25 only** (the 97.2% R@5 free
+  path) — the local TF-IDF embedder sits below the vector gate and
+  the graph channel is empty until entities exist (by design, with a
+  byte-for-byte 2-channel fast path). New "What runs by default"
+  table maps each extra/key to the channel it unlocks; drift test
+  added.
+
 ### Security
 
 - Transport security (P0-3; SM-SEC-01/02/03, SM-DOC-03):

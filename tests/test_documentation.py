@@ -59,6 +59,30 @@ def test_changelog_06x_07x_entries_present():
         )
 
 
+def test_readme_states_true_default_state():
+    """P1-5 (SM-DOC-01) drift guard: the README must state what
+    actually runs with no extras and no keys — BM25 only — and map
+    each extra/key to the channel it unlocks. The measured default
+    (fresh install, no extras, no key, after a code scan): embedder
+    local/tfidf-v1 quality 0.45 (below the vector gate), entities
+    table empty (graph fast-path) ⇒ BM25-only, at 97.2% R@5 free-path.
+    """
+    readme = (_REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    assert "What runs by default" in readme, (
+        "README must have a 'What runs by default' section (P1-5)"
+    )
+    section = readme.split("What runs by default", 1)[1]
+    body = section.split("\n## ", 1)[0].lower()
+    for marker in ("bm25", "[neural]", "vector", "graph"):
+        assert marker in body, (
+            f"default-state section must mention {marker!r}"
+        )
+    assert "empty" in body, (
+        "section must state the graph channel is empty until "
+        "entities exist"
+    )
+
+
 def test_config_yaml_example_covers_required_keys():
     """`docs/config.yaml.example` exists; ≥30 non-empty lines;
     covers required key paths from spec A13.
