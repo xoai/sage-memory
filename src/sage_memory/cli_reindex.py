@@ -27,7 +27,7 @@ import logging
 import sys
 import uuid
 
-from .db import get_project_db
+from .db import get_project_db, require_sql_identifier
 
 
 logger = logging.getLogger("sage_memory.cli_reindex")
@@ -259,9 +259,17 @@ def _do_full_reembed(
         # Backup via CREATE-new + INSERT-SELECT (RENAME on virtual
         # tables is not reliable across sqlite-vec versions).
         for table in ("memories", "chunks"):
-            src = f"{table}_vec"
-            dst = f"{table}_vec_backup_{ts}"
-            id_col = "memory_id" if table == "memories" else "chunk_id"
+            # P2-3 (SM-QUAL-01, hygiene — NOT a live vulnerability):
+            # `table` comes from the hardcoded tuple above and `ts`
+            # from an internal timestamp; the validator keeps scanner
+            # warnings quiet and makes any future unsafe edit fail
+            # loudly at this boundary. Identifiers can't use `?`
+            # binding, so f-string + whitelist is the safe pattern.
+            src = require_sql_identifier(f"{table}_vec")
+            dst = require_sql_identifier(f"{table}_vec_backup_{ts}")
+            id_col = require_sql_identifier(
+                "memory_id" if table == "memories" else "chunk_id"
+            )
             # Probe original dim for the backup table.
             try:
                 src_dim_row = db.execute(
@@ -484,13 +492,17 @@ def _backup_list() -> int:
         chunk_count = 0
         try:
             mem_count = db.execute(
-                f"SELECT COUNT(*) AS n FROM memories_vec_backup_{ts}"
+                "SELECT COUNT(*) AS n FROM "
+                + require_sql_identifier(f"memories_vec_backup_{ts}")
+                # safe: ts from internal backup listing (P2-3 hygiene)
             ).fetchone()["n"]
         except Exception:
             mem_count = -1
         try:
             chunk_count = db.execute(
-                f"SELECT COUNT(*) AS n FROM chunks_vec_backup_{ts}"
+                "SELECT COUNT(*) AS n FROM "
+                + require_sql_identifier(f"chunks_vec_backup_{ts}")
+                # safe: ts from internal backup listing (P2-3 hygiene)
             ).fetchone()["n"]
         except Exception:
             chunk_count = -1
