@@ -458,6 +458,18 @@ pip install sage-memory[neural]
 
 Auto-detected, enables hybrid search (FTS5 + vector via Reciprocal Rank Fusion).
 
+One-command upgrade (validates the tier, then backs up + migrates the
+vector tables and re-embeds):
+
+```bash
+sage-memory embedder use fastembed   # local neural, 384d
+sage-memory embedder use openai      # hosted 1536d (needs OPENAI_API_KEY)
+sage-memory embedder use local       # back to the zero-dep floor
+```
+
+`sage-memory status` shows the active embedder and stale-embedding
+count, with the next step when rows are stale.
+
 ## Retrieval Pipeline
 
 Sage Memory's search is a **six-stage pipeline** combining three
