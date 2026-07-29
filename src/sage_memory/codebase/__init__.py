@@ -143,6 +143,7 @@ def _scan_file(
     query_id: str,
     parser,
     force: bool = False,
+    relations_sink: dict | None = None,
 ) -> tuple[str, str]:
     """Atomically scan one file: extract symbols + register in
     ``codebase_scans``. Returns ``("scanned"|"unchanged", memory_id)``.
@@ -154,10 +155,19 @@ def _scan_file(
     Slow path (inside ``with conn:`` so sqlite3 manages BEGIN/COMMIT
     and auto-rollbacks on exception):
 
+    0. P1-1: snapshot ``code_relations`` rows in OTHER files whose
+       ``target_symbol_id`` points at this file's soon-to-be-deleted
+       symbols into a connection-local TEMP table. The FK is
+       ``ON DELETE CASCADE`` — without the snapshot, cross-file
+       relations into a changed file would silently vanish on rescan
+       (pre-P1-1 the always-full resolve re-derived them from disk).
     1. ``upsert_file_memory`` (T4) — write to ``memories`` only.
     2. ``DELETE FROM code_symbols WHERE file_memory_id = ?`` — drops
        stale symbols (and ``code_relations`` whose source FK CASCADEs).
-    3. ``extract`` (T5) — parse + walk tree.
+    3. ``extract`` (T5) — parse + walk tree. When ``relations_sink``
+       is provided, the extracted relations + error-node flag are
+       deposited there (keys ``relations`` / ``had_error_nodes``) so
+       the resolve pass can reuse them instead of re-parsing (P1-1).
     4. INSERT each extracted symbol into ``code_symbols``.
     5. ``INSERT OR REPLACE INTO codebase_scans`` — this function is
        the SOLE writer to that table (rev 3 C1: makes orphan-state
@@ -188,11 +198,37 @@ def _scan_file(
             rel_path=rel_path,
             language=language_tag,
         )
+        # Step 0 (P1-1): orphan snapshot — see docstring. TEMP table is
+        # connection-local; resolve_codebase's incremental path restores
+        # these rows as unresolved and re-resolves them.
+        conn.execute(
+            """CREATE TEMP TABLE IF NOT EXISTS _resolve_orphans (
+                   id TEXT PRIMARY KEY,
+                   source_symbol_id TEXT NOT NULL,
+                   target_name TEXT NOT NULL,
+                   kind TEXT NOT NULL,
+                   line INTEGER NOT NULL,
+                   column_start INTEGER NOT NULL
+               )"""
+        )
+        conn.execute(
+            """INSERT OR IGNORE INTO _resolve_orphans
+               SELECT id, source_symbol_id, target_name, kind, line,
+                      column_start
+               FROM code_relations
+               WHERE target_symbol_id IN (
+                   SELECT id FROM code_symbols WHERE file_memory_id = ?
+               )""",
+            (memory_id,),
+        )
         conn.execute(
             "DELETE FROM code_symbols WHERE file_memory_id = ?",
             (memory_id,),
         )
         extracted = extract(parser, query_id, file_bytes, rel_path)
+        if relations_sink is not None:
+            relations_sink["relations"] = extracted.relations
+            relations_sink["had_error_nodes"] = extracted.had_error_nodes
         _insert_symbols(conn, memory_id, language_tag, extracted.symbols)
         conn.execute(
             "INSERT OR REPLACE INTO codebase_scans "
@@ -249,6 +285,7 @@ def scan(
     force: bool = False,
     dry_run: bool = False,
     progress: Callable[[int, int], None] | None = None,
+    full_resolve: bool = False,
 ) -> ScanResult:
     """Run a codebase scan over ``root`` (defaults to the active
     project root resolved via ``db._resolve_project_root``).
@@ -342,6 +379,7 @@ def scan(
     try:
         return _do_scan_after_lock(
             conn, root_path, files, result, force, progress, start,
+            full_resolve=full_resolve,
         )
     finally:
         # MUST release even when _do_scan_after_lock raises so a
@@ -353,10 +391,16 @@ def scan(
 
 def _do_scan_after_lock(
     conn, root_path, files, result, force, progress, start,
+    full_resolve=False,
 ):
     """The actual per-file scan loop + resolve, factored out so the
     surrounding lock acquire/release in ``scan()`` is a clean
     try/finally pair.
+
+    P1-1: relations extracted during the scan of changed files are
+    collected and handed to ``resolve_codebase`` (``extracted=...``),
+    which then resolves from the DB instead of re-parsing every file.
+    ``full_resolve=True`` restores the pre-P1-1 disk re-parse path.
     """
     import time as _time
 
@@ -377,10 +421,15 @@ def _do_scan_after_lock(
     # entire project DB. A previous scan of a different path
     # shouldn't inflate the current run's symbol/relation counts.
     touched_memory_ids: set[str] = set()
+    # P1-1: relations for files re-parsed THIS run, keyed by
+    # file_memory_id. Unchanged files contribute nothing — their
+    # code_relations rows persist and are re-resolved from the DB.
+    extracted_relations: dict[str, dict] = {}
     for i, (rel, language_tag, grammar_name, query_id) in enumerate(files):
         abs_path = root_path / rel
         try:
             parser = _get_cached_parser(grammar_name)
+            sink: dict = {}
             status, memory_id = _scan_file(
                 conn,
                 abs_path=abs_path,
@@ -389,9 +438,11 @@ def _do_scan_after_lock(
                 query_id=query_id,
                 parser=parser,
                 force=force,
+                relations_sink=sink,
             )
             touched_memory_ids.add(memory_id)
             if status == "scanned":
+                extracted_relations[memory_id] = sink
                 result.files_changed += 1
             else:  # "unchanged"
                 result.files_unchanged += 1
@@ -417,6 +468,7 @@ def _do_scan_after_lock(
         conn,
         project_root=root_path,
         parsers=parsers_for_resolve,
+        extracted=None if full_resolve else extracted_relations,
     )
     result.files_with_error_nodes = resolve_result.files_with_error_nodes
     result.parse_errors += resolve_result.parse_errors

@@ -4,6 +4,22 @@ All notable changes to sage-memory will be documented in this file.
 
 ## [Unreleased]
 
+### Performance
+
+- Incremental rescan (P1-1; SM-PERF-01, SM-PERF-03): the resolve pass
+  no longer re-reads or re-parses unchanged files. Relations for
+  changed files are reused from the scan pass; cross-file dependents
+  are re-resolved from the DB; rows orphaned by the `ON DELETE
+  CASCADE` on changed files' symbols are snapshotted and restored.
+  Resolver helpers (`_siblings_in_same_directory`, TS/Rust rel_path
+  lookups) use precomputed maps instead of per-relation O(files)
+  scans — measured as the dominant cost on the 471-file Go corpus:
+  cold scan 29.1s → 1.5s; no-change rescan 27.9s → 0.2s (doc baseline
+  73.2s/84.4s on slower hardware). Escape hatch: `--full-resolve`
+  restores the old disk re-parse path (`--force` implies it).
+  Migration `010_unresolved_relations_index.sql` adds a partial index
+  on unresolved `code_relations.target_name`.
+
 ### Security
 
 - Transport security (P0-3; SM-SEC-01/02/03, SM-DOC-03):
