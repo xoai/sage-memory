@@ -6,6 +6,10 @@ All notable changes to sage-memory will be documented in this file.
 
 ### Added
 
+- `LICENSE` file (MIT). `pyproject.toml` now uses PEP 639 metadata
+  (`license = "MIT"`, `license-files = ["LICENSE"]`); built wheels
+  carry `License-Expression: MIT` and ship the license text under
+  `dist-info/licenses/`. (P0-2, SM-LEGAL-01)
 - CI quality gate (P0-1, SM-PROC-01): `.github/workflows/ci.yml` runs
   on every push to main and every PR — test matrix Python 3.11–3.13
   on base deps (proves the zero-extra floor), all-extras job, ruff

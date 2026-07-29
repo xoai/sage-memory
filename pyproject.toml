@@ -3,7 +3,8 @@ name = "sage-memory"
 version = "0.13.1"
 description = "Local MCP memory for AI agents — graph-native, learns from mistakes, no LLM required"
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
     "fastmcp>=3.0.0,<4.0.0",
