@@ -38,10 +38,10 @@ for the agent-side configuration.
 
 Two image variants ship from this cycle:
 
-| Image            | Includes                            | Size budget |
-|------------------|-------------------------------------|-------------|
-| `sage-memory:slim` | Just sage-memory (no fastembed)     | ≤ 60MB      |
-| `sage-memory:full` | sage-memory + bge-small bundled     | ≤ 350MB     |
+| Image            | Includes                            | Size (uncompressed, CI-measured) |
+|------------------|-------------------------------------|----------------------------------|
+| `sage-memory:slim` | Just sage-memory (no fastembed)     | ~210MB      |
+| `sage-memory:full` | sage-memory + bge-small bundled     | ~455MB     |
 
 Use **slim** when the host has good outbound network access — the
 fastembed model downloads on first use (~30s warm-up). Use **full**

@@ -45,6 +45,11 @@ All notable changes to sage-memory will be documented in this file.
 
 ### Fixed
 
+- Docker image size budgets re-based to CI-measured reality
+  (slim ~210MB / full ~455MB uncompressed; previously aspirational
+  60MB/350MB targets that predated the v0.13.1 FastMCP dependency
+  tree and were never CI-enforced — the first CI run caught the
+  drift). Multi-stage slimming tracked as a follow-up.
 - `tests/test_documentation.py` could never pass on a clean clone —
   it asserted `.sage/config.yaml.example` exists while `.gitignore`
   ignores `.sage/` (shipped broken in v0.13.1). The test now points
