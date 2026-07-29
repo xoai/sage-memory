@@ -1,0 +1,80 @@
+name: CI
+
+# P0-1 (SM-PROC-01): the quality gate that turns the test suite into
+# an actual guarantee. Four jobs: base-deps matrix (proves the
+# zero-extra floor, invariant 1), all-extras, lint, build.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (py${{ matrix.python-version }}, base deps)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install ${{ matrix.python-version }}
+      - name: Sync base deps (zero-extra floor)
+        run: uv sync --frozen --extra dev --python ${{ matrix.python-version }}
+      - name: Run tests
+        run: uv run --frozen pytest tests/ -q
+
+  test-extras:
+    name: test (py3.12, all extras)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Sync all extras
+        run: uv sync --all-extras --frozen --python 3.12
+      - name: Run tests
+        run: uv run --frozen pytest tests/ -q
+
+  lint:
+    name: ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Sync dev extra
+        run: uv sync --frozen --extra dev
+      - name: Ruff
+        run: uv run --frozen ruff check src/ tests/
+
+  build:
+    name: build (wheel + sdist)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Build
+        run: uv build
+      - name: Verify artifacts
+        run: |
+          test -f dist/sage_memory-*.whl
+          test -f dist/sage_memory-*.tar.gz

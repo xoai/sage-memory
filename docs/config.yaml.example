@@ -1,0 +1,66 @@
+# sage-memory configuration example
+#
+# Copy to .sage/config.yaml in your project root and edit. Every key
+# shown here mirrors the built-in defaults (config.py:_BUILT_IN_DEFAULTS)
+# — the file is fully optional; delete any key to inherit the default.
+#
+# Precedence (highest wins):
+#   1. Per-call override (internal)
+#   2. Environment variables (SAGE_MEMORY_* and legacy aliases)
+#   3. This file (.sage/config.yaml)
+#   4. Built-in defaults (shown below)
+#
+# API keys are ENVIRONMENT-ONLY passthroughs (never write them here):
+#   ANTHROPIC_API_KEY, OPENAI_API_KEY      → llm tier
+#   VOYAGE_API_KEY, COHERE_API_KEY         → embedding tier
+# Legacy env aliases still honored: SAGE_LLM_MODEL,
+#   SAGE_GRAPH_RANK_CURVE, SAGE_EXPAND_TOP1_NORM, SAGE_EXPAND_TOP1_RATIO,
+#   SAGE_RERANK_TOP_K, SAGE_RERANK_FAILURE_VISIBILITY,
+#   SAGE_RERANK_BLEND_CURVE.
+
+sage_memory:
+  retrieval:
+    # Query expansion (LLM-assisted; "auto" = only when configured).
+    expand:
+      enabled: auto            # auto | true | false
+      strong_signal_top1_norm: 0.4
+      strong_signal_ratio: 2.0
+      llm_model: null          # override model id; null = provider default
+    # Result reranking (LLM-assisted; "auto" = only when configured).
+    rerank:
+      enabled: auto
+      top_k: 15
+      blend_curve: [0.75, 0.6, 0.4]
+      blend_transitions: [3, 10]
+      llm_model: null
+      failure_visibility: warn
+    # Retrieval channels and their RRF weights. The graph channel
+    # degrades to a byte-identical 2-channel result when the entities
+    # table is empty (default until you store entities/relations).
+    channels:
+      bm25:
+        weight: 1.0
+      vector:
+        weight: auto           # auto = embedder quality score
+      graph:
+        weight: 0.7
+        depth: 2
+        rank_curve: linear     # linear | inverse | exponential
+    fusion:
+      k_rrf: 60                # Reciprocal Rank Fusion constant
+
+  # Semantic dedup worker. interval: null = disabled (default);
+  # set a seconds value to run periodic dedup sweeps.
+  dedup:
+    interval: null
+    interval_enabled: false
+
+  # LLM tier (worker extraction, expansion, rerank). All optional —
+  # "no LLM required" is the product floor; these only unlock
+  # quality upgrades when the matching env API key is present.
+  llm:
+    model_override: null       # legacy alias: SAGE_LLM_MODEL
+
+  # Hosted embedding tier (optional; LocalEmbedder TF-IDF works with
+  # zero extras, zero keys, zero network).
+  embedding: {}

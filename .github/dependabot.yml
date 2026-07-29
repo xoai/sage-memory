@@ -1,0 +1,20 @@
+# P0-1 (SM-PROC-01): dependency update automation, grouped so minor
+# and patch bumps land as one PR per ecosystem per week.
+
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      minor-patch:
+        update-types: ["minor", "patch"]
