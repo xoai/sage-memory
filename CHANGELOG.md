@@ -2,6 +2,15 @@
 
 All notable changes to sage-memory will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- `LICENSE` file (MIT). `pyproject.toml` now uses PEP 639 metadata
+  (`license = "MIT"`, `license-files = ["LICENSE"]`); built wheels
+  carry `License-Expression: MIT` and ship the license text under
+  `dist-info/licenses/`. (P0-2, SM-LEGAL-01)
+
 ## [0.13.1] — 2026-07-29
 
 ### Fixed
