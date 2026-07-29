@@ -472,5 +472,91 @@
       "type": "object"
     },
     "name": "sage_memory_scan_codebase"
+  },
+  {
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    },
+    "description": "Shortest call/import path between two code symbols over the RESOLVED edges of the scanned code graph (name-matched unresolved edges are never used as hops \u2014 a path through a guess would be false provenance). Ambiguous names return candidates instead of guessing. Requires a prior sage_memory_scan_codebase run.",
+    "inputSchema": {
+      "properties": {
+        "a": {
+          "description": "Source symbol (name or qualified name).",
+          "type": "string"
+        },
+        "b": {
+          "description": "Target symbol (name or qualified name).",
+          "type": "string"
+        },
+        "max_depth": {
+          "default": 16,
+          "description": "BFS depth cap (max 16).",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "a",
+        "b"
+      ],
+      "type": "object"
+    },
+    "name": "sage_memory_code_path"
+  },
+  {
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    },
+    "description": "What depends on a code symbol (reverse traversal of the scanned code graph) \u2014 the 'what breaks if I change this' query. Grouped by relation kind with file:line; resolved edges are facts, unresolved edges are labelled name-match. Requires a prior sage_memory_scan_codebase run.",
+    "inputSchema": {
+      "properties": {
+        "depth": {
+          "default": 2,
+          "description": "Inbound traversal depth (max 8).",
+          "type": "integer"
+        },
+        "resolved_only": {
+          "default": false,
+          "description": "Exclude unresolved name-match edges.",
+          "type": "boolean"
+        },
+        "symbol": {
+          "description": "Symbol to analyze (name or qualified name).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "symbol"
+      ],
+      "type": "object"
+    },
+    "name": "sage_memory_code_affected"
+  },
+  {
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    },
+    "description": "Most-connected code symbols (architectural hot spots) with in/out degree split. Requires a prior sage_memory_scan_codebase run.",
+    "inputSchema": {
+      "properties": {
+        "limit": {
+          "default": 20,
+          "description": "Max hubs returned (1-200).",
+          "type": "integer"
+        },
+        "resolved_only": {
+          "default": false,
+          "description": "Count only resolved edges in the degree.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "name": "sage_memory_code_hubs"
   }
 ]
