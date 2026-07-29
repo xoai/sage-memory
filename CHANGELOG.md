@@ -6,20 +6,18 @@ All notable changes to sage-memory will be documented in this file.
 
 ### Added
 
-- Structural code-graph queries (P2-1, SM-CAP-01): `path`,
-  `affected`, `hubs` over the scanned code graph — deterministic,
-  no LLM/embeddings. Surfaces: `sage-memory code {path, affected,
-  hubs}` CLI and three **additive** MCP tools
-  (`sage_memory_code_path`, `sage_memory_code_affected`,
-  `sage_memory_code_hubs`; tools/list grows 10 → 13, existing tools
-  byte-identical). `path` traverses resolved edges only (unresolved
-  name-matches are never hops); `affected`/`hubs` label unresolved
-  edges distinctly with a `--resolved-only` filter. Traversals are
-  cycle-safe and cap-bounded with honest `truncated` signalling.
-  Migration `012_code_graph_indexes.sql` adds `code_symbols(name)` +
-  `(file_memory_id)` indexes. Measured on the 35K-relation corpus:
-  affected <1ms, hubs 10ms, path <1ms (targets 200/500/200ms).
-  Design: docs/design/code-graph-queries.md.
+- Cross-tool code-graph import (P2-4, SM-CAP-01 adjacent):
+  `sage-memory code import <graph.json> [--tool <name>]` ingests an
+  external tool's deterministic code graph (JSON nodes/edges) into
+  `code_symbols`/`code_relations` — pure file artifact, no dependency
+  on the external package (incompatible tree-sitter pins). Provenance
+  via migration `013_relation_source.sql` (`source` column, native
+  rows keep the `'native'` default; imports tagged
+  `'import:<tool>'`). Confidence mapping never silently upgrades:
+  only explicit fact labels become `resolved`. Re-import replaces
+  that source's rows only; native and other tools' rows untouched.
+  Imported edges are visible to the P2-1 `affected`/`hubs` queries
+  with correct confidence labels.
 
 ### Changed
 
