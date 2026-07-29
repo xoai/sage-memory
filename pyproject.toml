@@ -1,6 +1,6 @@
 [project]
 name = "sage-memory"
-version = "0.13.1"
+version = "0.13.2"
 description = "Local MCP memory for AI agents — graph-native, learns from mistakes, no LLM required"
 readme = "README.md"
 license = "MIT"

@@ -2,89 +2,11 @@
 
 All notable changes to sage-memory will be documented in this file.
 
-## [Unreleased]
+## [0.13.2] — 2026-07-29
 
-### Added
-
-- ADR reconstructions (P1-6, SM-DOC-02): all eight ADRs referenced in
-  code comments (001–005, 007–010) reconstructed from the citing
-  comments into Context/Decision/Consequences/Status documents, with
-  an index and milestone/review-tag glossary. Kept internal at
-  `.sage/docs/adr/` (dev-facing, not published). Gaps where rationale
-  was never recorded are marked explicitly rather than invented.
-
-### Fixed
-
-- Internal-only documentation location: `docs/adr/` and
-  `docs/design/` were incorrectly committed to the published tree;
-  they now live in gitignored `.sage/docs/` with no public files
-  linking to them.
-
-- README now states the true default state (P1-5, SM-DOC-01): a fresh
-  install with no extras/keys runs **BM25 only** (the 97.2% R@5 free
-  path) — the local TF-IDF embedder sits below the vector gate and
-  the graph channel is empty until entities exist (by design, with a
-  byte-for-byte 2-channel fast path). New "What runs by default"
-  table maps each extra/key to the channel it unlocks; drift test
-  added.
-- Search-path observability (P1-4, SM-REL-02): a failing retrieval
-  channel is no longer indistinguishable from an empty one. Channel
-  legs (bm25/vector/graph) are guarded at the call site — failures
-  degrade to an empty leg + a `warning` log carrying the channel and
-  a short query hash (never the query text); `_vec_search*` previously
-  had NO guard, so a vec-channel error killed the whole search. The
-  access-tracking cluster stays non-fatal but is debug-logged and
-  counted (`_ACCESS_FLUSH_FAILURES`). Public MCP response shape
-  unchanged (pinned by test).
-### Performance
-- Embedder ergonomics (P2-2, SM-DOC-01 capability half):
-  `sage-memory embedder use <fastembed|openai|voyage|cohere|local>`
-  — validates the tier (import probe / env key; never prompts for
-  secrets), then runs the existing tested backup + dim-migration +
-  re-embed flow. `use local` is the downgrade path to the zero-dep
-  floor. `sage-memory status` now prints an actionable next step when
-  memories are stale (`embedder use fastembed` on the local floor,
-  `reindex --embeddings` otherwise) — auto-enqueue deliberately
-  rejected. ANN evaluated with a recorded measurement (brute-force
-  cosine: 21.5ms at 100K vectors, far under the 200ms budget) and
-  NOT built. Zero-dep floor unchanged.
-- Structural code-graph queries (P2-1, SM-CAP-01): `path`,
-  `affected`, `hubs` over the scanned code graph — deterministic,
-  no LLM/embeddings. Surfaces: `sage-memory code {path, affected,
-  hubs}` CLI and three **additive** MCP tools
-  (`sage_memory_code_path`, `sage_memory_code_affected`,
-  `sage_memory_code_hubs`; tools/list grows 10 → 13, existing tools
-  byte-identical). `path` traverses resolved edges only (unresolved
-  name-matches are never hops); `affected`/`hubs` label unresolved
-  edges distinctly with a `--resolved-only` filter. Traversals are
-  cycle-safe and cap-bounded with honest `truncated` signalling.
-  Migration `012_code_graph_indexes.sql` adds `code_symbols(name)` +
-  `(file_memory_id)` indexes. Measured on the 35K-relation corpus:
-  affected <1ms, hubs 10ms, path <1ms (targets 200/500/200ms).
-
-- Cross-tool code-graph import (P2-4, SM-CAP-01 adjacent):
-  `sage-memory code import <graph.json> [--tool <name>]` ingests an
-  external tool's deterministic code graph (JSON nodes/edges) into
-  `code_symbols`/`code_relations` — pure file artifact, no dependency
-  on the external package (incompatible tree-sitter pins). Provenance
-  via migration `013_relation_source.sql` (`source` column, native
-  rows keep the `'native'` default; imports tagged
-  `'import:<tool>'`). Confidence mapping never silently upgrades:
-  only explicit fact labels become `resolved`. Re-import replaces
-  that source's rows only; native and other tools' rows untouched.
-  Imported edges are visible to the P2-1 `affected`/`hubs` queries
-  with correct confidence labels.
-
-### Changed
-
-- SQL hygiene (P2-3, SM-QUAL-01 — **not a vulnerability fix**):
-  identifiers interpolated into SQL f-strings in `cli_reindex.py`
-  (vec backup tables) now pass a strict `^[A-Za-z_][A-Za-z0-9_]*$`
-  whitelist (`db.require_sql_identifier`), and the
-  `PRAGMA application_id` value in `cli_dedup.py` is `int()`-cast.
-  The interpolated values were always internal constants — no
-  injection was reachable; this keeps scanners quiet and makes
-  future unsafe edits fail loudly.
+Upgrade program: CI + legal + transport security (Phase 0), correctness
+& performance (Phase 1), capability (Phase 2). Full details in
+`.sage/docs/sage-memory-upgrade/`.
 
 ### Security
 
@@ -106,6 +28,47 @@ All notable changes to sage-memory will be documented in this file.
     `Path.is_relative_to` (sibling-prefix paths rejected).
   - New `SECURITY.md` (threat model, reporting).
 
+### Added
+
+- `LICENSE` file (MIT) with PEP 639 metadata; wheels carry
+  `License-Expression: MIT` and ship the text. (P0-2, SM-LEGAL-01)
+- CI quality gate (P0-1, SM-PROC-01): `.github/workflows/ci.yml` on
+  every push/PR — test matrix Python 3.11–3.13 on base deps (proves
+  the zero-extra floor), all-extras job, ruff lint, wheel/sdist
+  build check. `dependabot.yml` (grouped weekly minor/patch).
+- `docs/config.yaml.example` (P0-1b, SM-BUG-01): the shipped config
+  example (moved out of gitignored `.sage/`); every recognised key
+  with real defaults and inline docs.
+- Structural code-graph queries (P2-1, SM-CAP-01): `path`,
+  `affected`, `hubs` over the scanned code graph — deterministic, no
+  LLM/embeddings. Surfaces: `sage-memory code {path, affected, hubs}`
+  CLI and three **additive** MCP tools (`sage_memory_code_path`,
+  `sage_memory_code_affected`, `sage_memory_code_hubs`; tools/list
+  grows 10 → 13, existing tools byte-identical). `path` traverses
+  resolved edges only (unresolved name-matches are never hops);
+  `affected`/`hubs` label unresolved edges distinctly with a
+  `--resolved-only` filter. Cycle-safe, cap-bounded, honest
+  `truncated` signalling. Migration `012_code_graph_indexes.sql`.
+  Measured on the 35K-relation corpus: affected <1ms, hubs 10ms,
+  path <1ms.
+- Cross-tool code-graph import (P2-4): `sage-memory code import
+  <graph.json> [--tool <name>]` — pure file artifact, no dependency
+  on the external package. Provenance via migration
+  `013_relation_source.sql` (`source` column; native rows keep the
+  `'native'` default). Confidence mapping never silently upgrades;
+  re-import replaces that source's rows only.
+- Embedder ergonomics (P2-2): `sage-memory embedder use
+  <fastembed|openai|voyage|cohere|local>` — validates the tier
+  (import probe / env key; never prompts for secrets), then runs the
+  existing tested backup + dim-migration + re-embed flow.
+  `sage-memory status` prints an actionable next step when memories
+  are stale. ANN evaluated with a recorded measurement (brute-force
+  cosine: 21.5ms at 100K vectors) and NOT built. Zero-dep floor
+  unchanged.
+- ADR reconstructions (P1-6, SM-DOC-02): all eight ADRs referenced
+  in code comments reconstructed into Context/Decision/Consequences/
+  Status documents, kept internal at `.sage/docs/adr/`.
+
 ### Changed
 
 - **Docker deployments**: the default `0.0.0.0` bind now requires
@@ -113,48 +76,65 @@ All notable changes to sage-memory will be documented in this file.
   Previously-open unauthenticated Docker/team servers must set a
   token (or bind loopback). See docs/guides/self-hosted-server.md
   §"Authentication (P0-3)".
-
-### Added
-
-- `LICENSE` file (MIT). `pyproject.toml` now uses PEP 639 metadata
-  (`license = "MIT"`, `license-files = ["LICENSE"]`); built wheels
-  carry `License-Expression: MIT` and ship the license text under
-  `dist-info/licenses/`. (P0-2, SM-LEGAL-01)
-- CI quality gate (P0-1, SM-PROC-01): `.github/workflows/ci.yml` runs
-  on every push to main and every PR — test matrix Python 3.11–3.13
-  on base deps (proves the zero-extra floor), all-extras job, ruff
-  lint, and a wheel/sdist build check. `dependabot.yml` groups weekly
-  minor/patch bumps for pip and github-actions.
-- `docs/config.yaml.example` (P0-1b, SM-BUG-01): the shipped config
-  example, moved out of gitignored `.sage/`. Covers every recognised
-  config key with real defaults and inline docs.
+- SQL hygiene (P2-3, SM-QUAL-01 — **not a vulnerability fix**):
+  identifiers interpolated into SQL f-strings in `cli_reindex.py`
+  now pass a strict whitelist (`db.require_sql_identifier`), and the
+  `PRAGMA application_id` value in `cli_dedup.py` is `int()`-cast.
+  No injection was reachable; this keeps scanners quiet and makes
+  future unsafe edits fail loudly.
 
 ### Fixed
 
-- Worker startup crash-safety (P1-3, SM-REL-01): the background worker
-  could die silently on a fresh or partially-migrated DB
-  (`no such table: extraction_queue`, previously visible only as a
-  pytest thread-exception warning). The worker's own connection now
-  runs the same idempotent migrations as the server; the thread body
-  has a top-level crash wrapper that logs loudly and records the
-  reason in `worker_state.last_error` (migration
-  `011_worker_crash_state.sql`), cleared on the next healthy start;
-  `sage-memory worker --status` surfaces `⚠ worker crashed: <reason>`.
-
+- Worker startup crash-safety (P1-3, SM-REL-01): the background
+  worker could die silently on a fresh or partially-migrated DB. Its
+  connection now runs the same idempotent migrations as the server;
+  a top-level crash wrapper logs loudly and records the reason in
+  `worker_state.last_error` (migration `011_worker_crash_state.sql`),
+  cleared on the next healthy start; `worker --status` surfaces
+  `⚠ worker crashed: <reason>`.
+- Search-path observability (P1-4, SM-REL-02): channel legs
+  (bm25/vector/graph) are guarded — failures degrade to an empty leg
+  + a `warning` log with a short query hash (never the query text);
+  `_vec_search*` previously had NO guard, so a vec-channel error
+  killed the whole search. Access-tracking failures are debug-logged
+  and counted. Public MCP response shape unchanged (pinned by test).
+- README states the true default state (P1-5, SM-DOC-01): a fresh
+  install with no extras/keys runs **BM25 only** (the 97.2% R@5
+  free path). New "What runs by default" table + drift test.
 - Docker image size budgets re-based to CI-measured reality
   (slim ~210MB / full ~455MB uncompressed; previously aspirational
   60MB/350MB targets that predated the v0.13.1 FastMCP dependency
   tree and were never CI-enforced — the first CI run caught the
   drift). Multi-stage slimming tracked as a follow-up.
-- `tests/test_documentation.py` could never pass on a clean clone —
-  it asserted `.sage/config.yaml.example` exists while `.gitignore`
-  ignores `.sage/` (shipped broken in v0.13.1). The test now points
-  at `docs/config.yaml.example`, and a new reverse-drift test proves
-  every key in the example is a recognised config key. Verified on a
-  fresh clone.
+- `tests/test_documentation.py` could never pass on a clean clone
+  (asserted a gitignored path). Now points at
+  `docs/config.yaml.example`; reverse-drift test added. Verified on
+  a fresh clone.
 - fastembed-dependent tests now `importorskip` when the `[neural]`
-  extra is absent (SM-TEST-01) instead of failing on the base-deps
-  floor.
+  extra is absent (SM-TEST-01).
+- Internal-only documentation location: `docs/adr/` and
+  `docs/design/` were incorrectly committed to the published tree;
+  they now live in gitignored `.sage/docs/` with no public links.
+
+### Performance
+
+- Incremental rescan (P1-1; SM-PERF-01, SM-PERF-03): the resolve
+  pass no longer re-reads or re-parses unchanged files. Relations
+  for changed files are reused from the scan pass; cross-file
+  dependents are re-resolved from the DB; rows orphaned by the
+  `ON DELETE CASCADE` on changed files' symbols are snapshotted and
+  restored. Resolver helpers use precomputed maps instead of
+  per-relation O(files) scans — measured as the dominant cost on the
+  471-file Go corpus: cold scan 29.1s → 1.5s; no-change rescan
+  27.9s → 0.2s. Escape hatch: `--full-resolve` (`--force` implies
+  it). Migration `010_unresolved_relations_index.sql`.
+- Resolver memoization (P1-2, descoped by measurement): profiling
+  showed raw parsing at 0.25s of a 1.5s scan — a process/thread
+  pool would save ≤0.5s against real concurrency risk, and the
+  ≥3× cold-scan goal was already met 19× by P1-1. No pool built
+  (spec's "choose the executor by measurement" rule); instead the
+  Go/Java sibling-directory lookup is memoized per resolve run —
+  cold scan 1.5s → 1.3s, identical DB state.
 
 ## [0.13.1] — 2026-07-29
 
