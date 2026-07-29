@@ -15,6 +15,32 @@ All notable changes to sage-memory will be documented in this file.
   access-tracking cluster stays non-fatal but is debug-logged and
   counted (`_ACCESS_FLUSH_FAILURES`). Public MCP response shape
   unchanged (pinned by test).
+### Performance
+
+- Resolver memoization (P1-2, descoped by measurement): profiling the
+  post-P1-1 cold scan showed raw tree-sitter parsing at 0.25s of a
+  1.5s scan — a process/thread pool (the P1-2 spec) would save ≤0.5s
+  while adding real concurrency risk, and a threads probe showed zero
+  parse speedup (0.12s serial vs threaded on 200 files). Per the
+  spec's own "choose the executor by measurement" rule, no pool was
+  built; the ≥3× cold-scan goal was already met 19× by P1-1. Instead,
+  the Go/Java sibling-directory lookup is memoized per resolve run
+  (59K calls on the corpus) and per-file directory strings are
+  precomputed — cold scan 1.5s → 1.3s, identical DB state.
+
+- Incremental rescan (P1-1; SM-PERF-01, SM-PERF-03): the resolve pass
+  no longer re-reads or re-parses unchanged files. Relations for
+  changed files are reused from the scan pass; cross-file dependents
+  are re-resolved from the DB; rows orphaned by the `ON DELETE
+  CASCADE` on changed files' symbols are snapshotted and restored.
+  Resolver helpers (`_siblings_in_same_directory`, TS/Rust rel_path
+  lookups) use precomputed maps instead of per-relation O(files)
+  scans — measured as the dominant cost on the 471-file Go corpus:
+  cold scan 29.1s → 1.5s; no-change rescan 27.9s → 0.2s (doc baseline
+  73.2s/84.4s on slower hardware). Escape hatch: `--full-resolve`
+  restores the old disk re-parse path (`--force` implies it).
+  Migration `010_unresolved_relations_index.sql` adds a partial index
+  on unresolved `code_relations.target_name`.
 
 ### Security
 
@@ -60,6 +86,16 @@ All notable changes to sage-memory will be documented in this file.
   config key with real defaults and inline docs.
 
 ### Fixed
+
+- Worker startup crash-safety (P1-3, SM-REL-01): the background worker
+  could die silently on a fresh or partially-migrated DB
+  (`no such table: extraction_queue`, previously visible only as a
+  pytest thread-exception warning). The worker's own connection now
+  runs the same idempotent migrations as the server; the thread body
+  has a top-level crash wrapper that logs loudly and records the
+  reason in `worker_state.last_error` (migration
+  `011_worker_crash_state.sql`), cleared on the next healthy start;
+  `sage-memory worker --status` surfaces `⚠ worker crashed: <reason>`.
 
 - Docker image size budgets re-based to CI-measured reality
   (slim ~210MB / full ~455MB uncompressed; previously aspirational

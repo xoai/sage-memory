@@ -27,6 +27,20 @@ def print_worker_status() -> None:
 
     print("sage-memory worker queue")
     print("─" * 60)
+
+    # P1-3 (SM-REL-01): surface a crashed worker. Previously a dead
+    # worker was indistinguishable from an idle one.
+    crash = db.execute(
+        "SELECT last_error, last_error_at FROM worker_state WHERE id = 1"
+    ).fetchone()
+    if crash is not None and crash["last_error"]:
+        import time as _time
+        when = _time.strftime(
+            "%Y-%m-%d %H:%M:%S",
+            _time.localtime(crash["last_error_at"] or 0),
+        )
+        print(f"  ⚠ worker crashed ({when}): {crash['last_error']}")
+
     print("  Queue depth:")
     for status in ("pending", "running", "done", "failed"):
         types = by_status.get(status, {})

@@ -81,6 +81,16 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Re-parse all files even if content-hash is unchanged.",
     )
+    p.add_argument(
+        "--full-resolve",
+        action="store_true",
+        help=(
+            "P1-1 escape hatch: re-extract every file from disk during "
+            "the resolve pass (the pre-P1-1 behavior). Implied by "
+            "--force. Default: resolve from the DB — no re-parsing of "
+            "unchanged files."
+        ),
+    )
     return p
 
 
@@ -143,6 +153,7 @@ def run_scan_codebase(argv: Sequence[str]) -> int:
             limit=args.limit,
             force=args.force,
             dry_run=args.dry_run,
+            full_resolve=args.full_resolve,
         )
     except ScanLimitExceeded as exc:
         # Spec line 191: exit 3 when --limit exceeded.
