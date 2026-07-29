@@ -476,6 +476,29 @@ the architecture decision records.
   LLM key is configured and the worker has populated the entity
   graph. The default channel weight is 0.7.
 
+### What runs by default
+
+A fresh install with no extras and no API keys runs **BM25 only** —
+and that's fine: it's the 97.2% R@5 free path. Each upgrade unlocks
+exactly one channel:
+
+| Configuration | Channels actually active | Cost |
+|---|---|---|
+| Default (no extras, no key) | BM25 (FTS5) | $0 |
+| `+ [neural]` extra | BM25 + vector | $0, local model download |
+| `+ hosted embedder key` | BM25 + vector (higher quality) | ~$0.50 / 500 q |
+| `+ agent-supplied entities` or LLM worker | BM25 + vector + graph | LLM cost if worker used |
+
+Two honest footnotes. The local TF-IDF embedder (quality 0.45) sits
+below the vector-channel quality gate, so `vector` stays off until
+`[neural]` or a hosted key raises embedder quality. And the **graph
+channel is empty until entities exist** — entities come from the
+optional LLM worker or from explicit `entities`/`relations` you pass
+to `sage_memory_store`; a code scan does not create them. This is by
+design: with an empty entity table the graph channel takes an
+empty-table fast path and the three-channel RRF degrades
+byte-for-byte to the two-channel result.
+
 **The six stages** (per call, in order):
 1. **expand** — optional LLM query expansion produces `{lex, vec,
    hyde}` variants. A strong-signal short-circuit on the FTS5 bm25
