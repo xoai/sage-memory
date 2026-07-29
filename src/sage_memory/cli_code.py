@@ -3,7 +3,7 @@
 Structural code-graph queries over the scanned code graph. Hand-rolled
 flag parsing matching the cli_dedup/cli_hub pattern. Human-readable
 text by default; ``--json`` for machine consumption. Semantics per
-docs/design/code-graph-queries.md.
+.sage/docs/design/code-graph-queries.md (internal).
 """
 
 from __future__ import annotations

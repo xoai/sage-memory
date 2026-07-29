@@ -19,7 +19,6 @@ All notable changes to sage-memory will be documented in this file.
   Migration `012_code_graph_indexes.sql` adds `code_symbols(name)` +
   `(file_memory_id)` indexes. Measured on the 35K-relation corpus:
   affected <1ms, hubs 10ms, path <1ms (targets 200/500/200ms).
-  Design: docs/design/code-graph-queries.md.
 
 - Cross-tool code-graph import (P2-4, SM-CAP-01 adjacent):
   `sage-memory code import <graph.json> [--tool <name>]` ingests an
