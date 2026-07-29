@@ -238,6 +238,15 @@ sage-memory code affected Compile --depth 2 # what breaks if I change this
 sage-memory code hubs --limit 10            # architectural hot spots
 ```
 
+Import an external tool's code graph (e.g. for languages beyond the
+native 10) — pure JSON artifact, no extra dependency, provenance
+preserved (`source = 'import:<tool>'`, no silent confidence upgrades,
+idempotent per-source replace):
+
+```bash
+sage-memory code import graph.json --tool codemap
+```
+
 `path` walks only *resolved* edges (name-matched unresolved edges are
 never hops); `affected` labels unresolved edges as name-matches with a
 `--resolved-only` filter. All three are also MCP tools.

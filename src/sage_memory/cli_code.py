@@ -20,6 +20,7 @@ Usage:
   sage-memory code path <A> <B> [--max-depth N] [--json]
   sage-memory code affected <X> [--depth N] [--resolved-only] [--json]
   sage-memory code hubs [--limit K] [--resolved-only] [--json]
+  sage-memory code import <graph.json> [--tool <name>] [--json]
 
 Commands:
   path      Shortest call/import path between two symbols over
@@ -29,6 +30,10 @@ Commands:
             relation kind). Unresolved edges are labelled
             "unresolved" (name-match); --resolved-only drops them.
   hubs      Most-connected symbols with in/out degree split.
+  import    P2-4: import an external tool's graph.json (nodes/edges)
+            into the code graph with provenance (source='import:<tool>')
+            and no silent confidence upgrades. Idempotent per-source
+            replace; native rows are never touched.
 """
 
 
@@ -102,7 +107,21 @@ def run_code(argv: list[str]) -> int:
     cmd, rest = argv[0], argv[1:]
     json_out = "--json" in rest
     resolved_only = "--resolved-only" in rest
-    positional = [a for a in rest if not a.startswith("--")]
+    # /review #6: values of known value-flags must not leak into
+    # positional args (e.g. `--tool x` made `x` look like the
+    # artifact path).
+    _VALUE_FLAGS = {"--tool", "--max-depth", "--depth", "--limit"}
+    positional = []
+    skip_next = False
+    for a in rest:
+        if skip_next:
+            skip_next = False
+            continue
+        if a in _VALUE_FLAGS:
+            skip_next = True
+            continue
+        if not a.startswith("--"):
+            positional.append(a)
 
     def _int_flag(name: str, default: int) -> int:
         if name in rest:
@@ -164,6 +183,40 @@ def run_code(argv: list[str]) -> int:
             resolved_only=resolved_only,
         )
         _print_json(result) if json_out else _render_hubs(result)
+        return 0
+
+    if cmd == "import":
+        if not positional:
+            print(_HELP_TEXT, file=sys.stderr)
+            return 1
+        artifact = positional[0]
+        tool_override = None
+        if "--tool" in rest:
+            i = rest.index("--tool")
+            if i + 1 < len(rest):
+                tool_override = rest[i + 1]
+        from .codebase.importer import import_graph
+        try:
+            result = import_graph(
+                conn, artifact, tool=tool_override,
+            )
+        except (OSError, ValueError, KeyError) as e:
+            print(
+                f"sage-memory code import: cannot read artifact: {e}",
+                file=sys.stderr,
+            )
+            return 1
+        if json_out:
+            _print_json(result)
+        else:
+            print(
+                f"imported {result['imported']} symbols from "
+                f"'{result['tool']}': "
+                f"{result['edges_resolved']} resolved + "
+                f"{result['edges_unresolved']} unresolved edges"
+                + (f" ({result['skipped_malformed']} malformed skipped)"
+                   if result["skipped_malformed"] else "")
+            )
         return 0
 
     print(f"sage-memory code: unknown subcommand: {cmd}\n",
