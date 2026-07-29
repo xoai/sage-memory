@@ -32,6 +32,9 @@ EXPOSE 3333
 STOPSIGNAL SIGTERM
 
 # Default entry: SSE transport on 0.0.0.0 inside the container.
+# P0-3 (SM-SEC-01): non-loopback binds REFUSE to start without an
+# auth token — pass it or the container exits immediately:
+#   docker run -e SAGE_MEMORY_TOKEN=<token> ...
 # Operators who only need localhost should set --host 127.0.0.1
 # AND skip Docker's port publishing.
 ENTRYPOINT ["sage-memory"]

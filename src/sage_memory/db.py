@@ -75,6 +75,85 @@ def get_project_db_path(project_root: Path) -> Path:
     return project_root / SAGE_DIR / DB_NAME
 
 
+# ─── P0-3 (SM-SEC-03) — set_project scoping ───────────────────────
+#
+# An unauthenticated network transport + arbitrary set_project was a
+# remote file-read/write path: point the server at any directory and
+# it creates .sage-memory/ there and reads content back through
+# search. The allowlist below scopes set_project to the operator's
+# launch context plus explicit extras.
+
+# Always-denied directories, even when under an allowed root.
+def _sensitive_dirs() -> tuple[Path, ...]:
+    home = Path.home()
+    return (
+        home / ".ssh",
+        home / ".gnupg",
+        home / ".aws",
+        Path("/etc"),
+    )
+
+
+def _allowed_project_roots() -> list[Path]:
+    """Allowed set_project roots (subtree-inclusive).
+
+    Default: the process's detected project root — SAGE_PROJECT_ROOT
+    when valid, else the marker walk-up from cwd. When no markers
+    exist (plain folder), the cwd itself is the launch context: an
+    operator starting the server in a markerless project must still be
+    able to point at it (zero-config, invariant 9). Plus every path in
+    SAGE_ALLOWED_ROOTS (os.pathsep-separated).
+    """
+    roots: list[Path] = []
+    env_root = os.environ.get("SAGE_PROJECT_ROOT")
+    detected: Path | None = None
+    if env_root:
+        p = Path(env_root).resolve()
+        if p.is_dir():
+            detected = p
+    if detected is None:
+        detected = find_project_root()
+    roots.append(detected if detected is not None else Path.cwd().resolve())
+
+    extra = os.environ.get("SAGE_ALLOWED_ROOTS")
+    if extra:
+        for part in extra.split(os.pathsep):
+            part = part.strip()
+            if part:
+                roots.append(Path(part).resolve())
+    return roots
+
+
+def _project_scope_error(resolved: Path) -> str | None:
+    """Return an error message when `resolved` may not be a project
+    root, else None. Denylist wins over allowlist.
+
+    Containment uses Path.is_relative_to on RESOLVED paths — never
+    str.startswith, which wrongly admits sibling-prefix paths
+    (/tmp/proj-secret vs /tmp/proj).
+    """
+    for denied in _sensitive_dirs():
+        try:
+            if resolved.is_relative_to(denied):
+                return (
+                    f"Refusing sensitive directory as project root: "
+                    f"{resolved}"
+                )
+        except ValueError:
+            continue
+    for root in _allowed_project_roots():
+        try:
+            if resolved.is_relative_to(root):
+                return None
+        except ValueError:
+            continue
+    return (
+        f"Project root outside allowed roots: {resolved}. Allowed: "
+        f"the detected project root (or launch directory) subtree, "
+        f"plus SAGE_ALLOWED_ROOTS (os.pathsep-separated)."
+    )
+
+
 def get_db_path(conn: sqlite3.Connection) -> Path:
     """Resolve which DB file a live ``sqlite3.Connection`` is bound to.
 
@@ -335,6 +414,11 @@ def set_project(path: str) -> dict:
     home = Path.home().resolve()
     if resolved == home:
         return {"error": "Cannot set home directory as project root. Use a project subdirectory."}
+
+    # P0-3 (SM-SEC-03): scope to the launch context + SAGE_ALLOWED_ROOTS.
+    scope_error = _project_scope_error(resolved)
+    if scope_error is not None:
+        return {"error": scope_error}
 
     _active_project = resolved
     _active_project_set = True

@@ -4,6 +4,34 @@ All notable changes to sage-memory will be documented in this file.
 
 ## [Unreleased]
 
+### Security
+
+- Transport security (P0-3; SM-SEC-01/02/03, SM-DOC-03):
+  - **Bearer auth** for `sse`/`http` transports: `--token` flag or
+    `SAGE_MEMORY_TOKEN` env; every request must carry
+    `Authorization: Bearer <token>` (`hmac.compare_digest`), else 401.
+  - **Refuse-start rule**: non-loopback binds (including `0.0.0.0`
+    and blank/wildcard hosts) without a token now exit with a clear
+    error. Loopback and stdio stay zero-config.
+  - **Host allowlist + Origin validation** (403): loopback spellings
+    plus `--allowed-host` (repeatable) / `SAGE_ALLOWED_HOSTS`
+    (os.pathsep-separated). Defeats DNS rebinding and browser
+    cross-origin drives.
+  - **`set_project` scoping**: only the detected project root subtree
+    (or launch directory when no markers exist) plus
+    `SAGE_ALLOWED_ROOTS` is accepted; `~/.ssh`, `~/.gnupg`, `~/.aws`,
+    `/etc` are always denied. Containment uses resolved-path
+    `Path.is_relative_to` (sibling-prefix paths rejected).
+  - New `SECURITY.md` (threat model, reporting).
+
+### Changed
+
+- **Docker deployments**: the default `0.0.0.0` bind now requires
+  `-e SAGE_MEMORY_TOKEN=...` or the container refuses to start.
+  Previously-open unauthenticated Docker/team servers must set a
+  token (or bind loopback). See docs/guides/self-hosted-server.md
+  §"Authentication (P0-3)".
+
 ### Added
 
 - CI quality gate (P0-1, SM-PROC-01): `.github/workflows/ci.yml` runs

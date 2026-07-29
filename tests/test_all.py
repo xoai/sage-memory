@@ -32,6 +32,9 @@ from sage_memory.search import search
 from sage_memory.graph import link, graph
 
 TMPDIR = Path(tempfile.mkdtemp())
+# P0-3 (SM-SEC-03): set_project is scoped to allowed roots; this
+# suite's projects live in TMPDIR outside the repo — whitelist it.
+os.environ["SAGE_ALLOWED_ROOTS"] = str(TMPDIR)
 PROJECT = TMPDIR / "test-project"
 PASS_COUNT = 0
 FAIL_COUNT = 0

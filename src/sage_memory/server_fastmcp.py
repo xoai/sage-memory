@@ -43,6 +43,106 @@ from .worker import Worker
 logger = logging.getLogger("sage-memory")
 
 
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def _host_without_port(host_header: str) -> str:
+    """Strip the port from a Host header, IPv6-bracket aware."""
+    h = host_header.strip()
+    if h.startswith("["):  # [::1]:3333
+        return h[1:h.index("]")] if "]" in h else h
+    if h.count(":") == 1:  # example.com:3333
+        return h.rsplit(":", 1)[0]
+    return h  # bare IPv6 or hostname without port
+
+
+class SecurityMiddleware:
+    """Pure-ASGI bearer-auth + Host-allowlist + Origin gate (P0-3).
+
+    Order matters: Host first (cheap, defeats DNS rebinding before any
+    auth work), then Origin (browser cross-origin defense), then the
+    bearer token (the real gate for non-browser clients — a non-browser
+    client controls its own Host header, per the sibling project's
+    hardening retrospective).
+
+    - Host: must be a loopback spelling or an explicit allowed host
+      → else 403. Compared with the port stripped.
+    - Origin: when present, its host must satisfy the same rule
+      → else 403. Absent Origin = non-browser client; allowed.
+    - Authorization: only enforced when a token is configured;
+      ``hmac.compare_digest`` against ``Bearer <token>`` → else 401.
+
+    stdio never sees this middleware (no HTTP surface). Loopback
+    binds without a token pass straight through (zero-config local
+    use, invariant 9).
+    """
+
+    def __init__(
+        self,
+        app: Any,
+        *,
+        token: str | None = None,
+        allowed_hosts: list[str] | tuple[str, ...] = (),
+    ) -> None:
+        self.app = app
+        self._token = token
+        self._allowed = _LOOPBACK_HOSTS | set(allowed_hosts)
+
+    def _host_ok(self, host_header: str) -> bool:
+        return _host_without_port(host_header) in self._allowed
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        headers = {
+            k.decode("latin-1").lower(): v.decode("latin-1")
+            for k, v in scope.get("headers", [])
+        }
+
+        host = headers.get("host", "")
+        if not host or not self._host_ok(host):
+            await self._reject(send, 403, "forbidden host")
+            return
+
+        origin = headers.get("origin")
+        if origin is not None:
+            from urllib.parse import urlsplit
+            origin_host = urlsplit(origin).hostname or ""
+            if origin_host not in self._allowed:
+                await self._reject(send, 403, "forbidden origin")
+                return
+
+        if self._token is not None:
+            import hmac
+            expected = f"Bearer {self._token}"
+            provided = headers.get("authorization", "")
+            if not hmac.compare_digest(provided, expected):
+                await self._reject(
+                    send, 401, "unauthorized",
+                    extra_headers=[(b"www-authenticate", b"Bearer")],
+                )
+                return
+
+        await self.app(scope, receive, send)
+
+    @staticmethod
+    async def _reject(send, status: int, message: str,
+                      extra_headers: list | None = None) -> None:
+        body = json.dumps({"error": message}).encode()
+        headers = [
+            (b"content-type", b"application/json"),
+            (b"content-length", str(len(body)).encode()),
+        ] + list(extra_headers or [])
+        await send({
+            "type": "http.response.start",
+            "status": status,
+            "headers": headers,
+        })
+        await send({"type": "http.response.body", "body": body})
+
+
 # Tools whose envelopes carried `_project` (current project name) in
 # the pre-M1.1b dispatch path (server.py:572-577 of 0.12.x). Existing
 # MCP clients have consumed this since 0.5.x — dropping it silently
