@@ -4,57 +4,16 @@ All notable changes to sage-memory will be documented in this file.
 
 ## [Unreleased]
 
-### Added
+### Changed
 
-- `docs/adr/` (P1-6, SM-DOC-02): all eight ADRs referenced in code
-  comments (001–005, 007–010) reconstructed from the citing comments
-  into Context/Decision/Consequences/Status documents, with an index
-  and milestone/review-tag glossary. Gaps where rationale was never
-  recorded are marked explicitly rather than invented.
-### Fixed
-
-- README now states the true default state (P1-5, SM-DOC-01): a fresh
-  install with no extras/keys runs **BM25 only** (the 97.2% R@5 free
-  path) — the local TF-IDF embedder sits below the vector gate and
-  the graph channel is empty until entities exist (by design, with a
-  byte-for-byte 2-channel fast path). New "What runs by default"
-  table maps each extra/key to the channel it unlocks; drift test
-  added.
-- Search-path observability (P1-4, SM-REL-02): a failing retrieval
-  channel is no longer indistinguishable from an empty one. Channel
-  legs (bm25/vector/graph) are guarded at the call site — failures
-  degrade to an empty leg + a `warning` log carrying the channel and
-  a short query hash (never the query text); `_vec_search*` previously
-  had NO guard, so a vec-channel error killed the whole search. The
-  access-tracking cluster stays non-fatal but is debug-logged and
-  counted (`_ACCESS_FLUSH_FAILURES`). Public MCP response shape
-  unchanged (pinned by test).
-### Performance
-
-- Resolver memoization (P1-2, descoped by measurement): profiling the
-  post-P1-1 cold scan showed raw tree-sitter parsing at 0.25s of a
-  1.5s scan — a process/thread pool (the P1-2 spec) would save ≤0.5s
-  while adding real concurrency risk, and a threads probe showed zero
-  parse speedup (0.12s serial vs threaded on 200 files). Per the
-  spec's own "choose the executor by measurement" rule, no pool was
-  built; the ≥3× cold-scan goal was already met 19× by P1-1. Instead,
-  the Go/Java sibling-directory lookup is memoized per resolve run
-  (59K calls on the corpus) and per-file directory strings are
-  precomputed — cold scan 1.5s → 1.3s, identical DB state.
-
-- Incremental rescan (P1-1; SM-PERF-01, SM-PERF-03): the resolve pass
-  no longer re-reads or re-parses unchanged files. Relations for
-  changed files are reused from the scan pass; cross-file dependents
-  are re-resolved from the DB; rows orphaned by the `ON DELETE
-  CASCADE` on changed files' symbols are snapshotted and restored.
-  Resolver helpers (`_siblings_in_same_directory`, TS/Rust rel_path
-  lookups) use precomputed maps instead of per-relation O(files)
-  scans — measured as the dominant cost on the 471-file Go corpus:
-  cold scan 29.1s → 1.5s; no-change rescan 27.9s → 0.2s (doc baseline
-  73.2s/84.4s on slower hardware). Escape hatch: `--full-resolve`
-  restores the old disk re-parse path (`--force` implies it).
-  Migration `010_unresolved_relations_index.sql` adds a partial index
-  on unresolved `code_relations.target_name`.
+- SQL hygiene (P2-3, SM-QUAL-01 — **not a vulnerability fix**):
+  identifiers interpolated into SQL f-strings in `cli_reindex.py`
+  (vec backup tables) now pass a strict `^[A-Za-z_][A-Za-z0-9_]*$`
+  whitelist (`db.require_sql_identifier`), and the
+  `PRAGMA application_id` value in `cli_dedup.py` is `int()`-cast.
+  The interpolated values were always internal constants — no
+  injection was reachable; this keeps scanners quiet and makes
+  future unsafe edits fail loudly.
 
 ### Security
 
