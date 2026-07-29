@@ -39,4 +39,6 @@ EXPOSE 3333
 STOPSIGNAL SIGTERM
 
 ENTRYPOINT ["sage-memory"]
+# P0-3 (SM-SEC-01): non-loopback binds REFUSE to start without an
+# auth token — run with: docker run -e SAGE_MEMORY_TOKEN=<token> ...
 CMD ["serve", "--transport", "sse", "--host", "0.0.0.0", "--port", "3333"]

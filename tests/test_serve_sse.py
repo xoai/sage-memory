@@ -140,19 +140,27 @@ def test_sse_bind_to_zero_dot_zero_works(tmp_path):
     flag-parsing level, leaving a regression in the actual bind logic
     invisible. Client connects via 127.0.0.1 — same machine, different
     bind addr — so the test runs cleanly in any CI without external
-    network access."""
+    network access.
+
+    P0-3 (SM-SEC-01): non-loopback binds now REQUIRE a token (the
+    refuse-start rule); the client authenticates with it. The
+    unauthenticated variant is covered by
+    test_serve_security.py::test_serve_non_loopback_no_token_exits_with_clear_error.
+    """
     import os
     import signal as _signal
     import subprocess as _sp
 
     (tmp_path / ".git").mkdir()
     port = _free_port()
+    token = "test-token-0.0.0.0-bind"
     proc = _sp.Popen(
         [
             sys.executable, "-m", "sage_memory", "serve",
             "--transport", "sse",
             "--host", "0.0.0.0",
             "--port", str(port),
+            "--token", token,
         ],
         cwd=str(tmp_path),
         stdout=_sp.DEVNULL,
@@ -163,7 +171,10 @@ def test_sse_bind_to_zero_dot_zero_works(tmp_path):
         _wait_for_port("127.0.0.1", port)
 
         async def _scenario() -> None:
-            async with sse_client(f"http://127.0.0.1:{port}/sse") as (
+            async with sse_client(
+                f"http://127.0.0.1:{port}/sse",
+                headers={"Authorization": f"Bearer {token}"},
+            ) as (
                 read, write,
             ):
                 async with ClientSession(

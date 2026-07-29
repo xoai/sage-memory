@@ -32,6 +32,64 @@ _TRANSPORT_MAP = {
 
 _VALID_LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def _is_loopback_host(host: str) -> bool:
+    """True only for exact loopback spellings.
+
+    P0-3 (SM-SEC-01): blank/wildcard binds ("", "0.0.0.0", "::") mean
+    ALL interfaces and MUST count as non-loopback — a memory-recorded
+    gotcha from the sibling project's identical hardening task, where
+    listing "" as loopback started the server unauthenticated on every
+    interface.
+    """
+    return host in _LOOPBACK_HOSTS
+
+
+def _resolve_token(flags: "_Flags") -> str | None:
+    """Auth token: --token flag, else SAGE_MEMORY_TOKEN env (P0-3)."""
+    if flags.token:
+        return flags.token
+    import os
+    env = os.environ.get("SAGE_MEMORY_TOKEN")
+    return env or None
+
+
+def _resolve_allowed_hosts(flags: "_Flags") -> list[str]:
+    """Host-allowlist extras: repeatable --allowed-host plus
+    SAGE_ALLOWED_HOSTS (os.pathsep-separated) (P0-3, SM-SEC-02)."""
+    import os
+    hosts = list(flags.allowed_hosts)
+    env = os.environ.get("SAGE_ALLOWED_HOSTS")
+    if env:
+        hosts.extend(h.strip() for h in env.split(os.pathsep) if h.strip())
+    return hosts
+
+
+def _enforce_transport_security(
+    flags: "_Flags", *, token: str | None,
+) -> str | None:
+    """Refuse-start rule (P0-3, SM-SEC-01). Returns an error message
+    when the configuration must not start, else None.
+
+    Network transport (sse/http) + non-loopback bind + no token →
+    refuse. Loopback and stdio stay zero-config (invariant 9; stdio
+    is a pipe to a local parent process, not a network surface).
+    """
+    if flags.transport == "stdio":
+        return None
+    if _is_loopback_host(flags.host):
+        return None
+    if token:
+        return None
+    return (
+        f"refusing to start: transport '{flags.transport}' on "
+        f"non-loopback host '{flags.host or '<all-interfaces>'}' "
+        f"requires an auth token. Pass --token or set "
+        f"SAGE_MEMORY_TOKEN. (Loopback binds stay zero-config.)"
+    )
+
 
 _HELP_TEXT = """\
 sage-memory serve — start the MCP server (0.13.0+)
@@ -54,8 +112,18 @@ Flags:
                 Set to 0.0.0.0 for remote exposure; reverse-proxy
                 required (see docs/guides/self-hosted-server.md).
   --hub         Activate hub-aware MCP tool behavior (search + store
-                gain hub_projects / hub_target params; M2/M3).
+                  gain hub_projects / hub_target params; M2/M3).
   --log-level   sage-memory + FastMCP logger threshold (default: INFO).
+  --token       Bearer token required on every sse/http request
+                  (P0-3). Default: SAGE_MEMORY_TOKEN env. Non-loopback
+                  binds REFUSE to start without a token.
+  --allowed-host
+                Extra Host header value to accept (repeatable; P0-3).
+                Default allowlist: loopback spellings only. Also
+                SAGE_ALLOWED_HOSTS (os.pathsep-separated). Required
+                for direct hostname/IP access — the Host allowlist is
+                a browser (DNS-rebinding) defense; the token is the
+                real gate.
 
 Examples:
   sage-memory                            # arg-less → serve --transport stdio
@@ -70,6 +138,11 @@ class _Flags:
     host: str = "127.0.0.1"
     hub: bool = False
     log_level: str = "INFO"
+    token: str | None = None
+    allowed_hosts: list = None  # set in _parse_flags
+
+    def __init__(self):
+        self.allowed_hosts = []
 
 
 def _parse_flags(argv: list[str]) -> _Flags | None:
@@ -124,6 +197,25 @@ def _parse_flags(argv: list[str]) -> _Flags | None:
         elif a == "--hub":
             flags.hub = True
             i += 1
+        elif a == "--token":
+            if i + 1 >= len(argv):
+                print(
+                    "sage-memory serve: --token requires a value\n",
+                    file=sys.stderr,
+                )
+                return None
+            flags.token = argv[i + 1]
+            i += 2
+        elif a == "--allowed-host":
+            if i + 1 >= len(argv):
+                print(
+                    "sage-memory serve: --allowed-host requires a "
+                    "value\n",
+                    file=sys.stderr,
+                )
+                return None
+            flags.allowed_hosts.append(argv[i + 1])
+            i += 2
         elif a == "--log-level":
             if i + 1 >= len(argv):
                 print(
@@ -161,9 +253,30 @@ def run_serve(argv: list[str]) -> int:
     if flags is None:
         return 2
 
+    # P0-3 (SM-SEC-01): resolve the token BEFORE the enforcement
+    # check; refuse to expose an unauthenticated network surface.
+    token = _resolve_token(flags)
+    refusal = _enforce_transport_security(flags, token=token)
+    if refusal is not None:
+        print(f"sage-memory serve: {refusal}\n", file=sys.stderr)
+        return 2
+
     # --log-level applies to the sage-memory + FastMCP loggers; the
     # MCP request-handling path inherits from these.
     logging.basicConfig(level=getattr(logging, flags.log_level))
+
+    allowed_hosts = _resolve_allowed_hosts(flags)
+    if not _is_loopback_host(flags.host) and flags.transport != "stdio":
+        # Memory-recorded gotcha (sibling project, identical task):
+        # the Host allowlist 403s direct hostname/IP access too —
+        # without this hint the operator sets a token, opens
+        # http://host:port/, and gets 403 on everything.
+        logger.info(
+            "serve: non-loopback bind — requests must hit a loopback "
+            "Host or one of --allowed-host %s; direct hostname/IP "
+            "access needs --allowed-host <name>",
+            allowed_hosts or "(none configured)",
+        )
 
     from .server_fastmcp import build_mcp_app
     mcp = build_mcp_app(hub_enabled=flags.hub)
@@ -187,9 +300,17 @@ def run_serve(argv: list[str]) -> int:
     # finally block (verified: ASGI-level lifespan drive + SIGTERM
     # against uvicorn). Default endpoint paths match FastMCP 1.0:
     # /sse for sse, /mcp for streamable-http.
+    #
+    # P0-3: SecurityMiddleware wraps the app — bearer auth (when a
+    # token is configured), Host allowlist, Origin validation.
     import uvicorn
 
+    from .server_fastmcp import SecurityMiddleware
+
     app = mcp.http_app(transport=_TRANSPORT_MAP[flags.transport])
+    app = SecurityMiddleware(
+        app, token=token, allowed_hosts=allowed_hosts,
+    )
     uvicorn.run(
         app,
         host=flags.host,

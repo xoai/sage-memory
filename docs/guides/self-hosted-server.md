@@ -52,8 +52,11 @@ for offline / air-gapped / regulated environments.
 docker build -f Dockerfile.slim -t sage-memory:slim .
 docker build -f Dockerfile.full -t sage-memory:full .
 
-# Run — mount the state volume so DBs survive container restarts
+# Run — mount the state volume so DBs survive container restarts.
+# SAGE_MEMORY_TOKEN is REQUIRED for non-loopback binds (0.0.0.0 in a
+# container): without it the server refuses to start (P0-3).
 docker run -d --name sage-memory \
+  -e SAGE_MEMORY_TOKEN="$(openssl rand -hex 32)" \
   -v $HOME/.sage-memory:/root/.sage-memory \
   -p 127.0.0.1:3333:3333 \
   sage-memory:full \
@@ -74,19 +77,35 @@ To keep the server **localhost-only on the host**, use the
 # Localhost-only (safe; SSH to access remotely)
 docker run -p 127.0.0.1:3333:3333 sage-memory:full ...
 
-# Wide-open (use ONLY with a reverse proxy in front)
+# Wide-open (requires SAGE_MEMORY_TOKEN; see "Authentication")
 docker run -p 3333:3333 sage-memory:full ...
 ```
 
 For team setups exposing the server beyond `127.0.0.1`, deploy
 a [reverse-proxy with auth](#reverse-proxy-patterns) in front.
 
-## Reverse-proxy patterns
+## Authentication (P0-3)
 
-sage-memory's MCP server **does not implement authentication itself**
-(per ADR-009 §"Scope clarification"). Concurrent-writer safety is
-solved by the ownership protocol; access control is the operator's
-responsibility via the network layer.
+Since 0.13.x the server **implements bearer-token authentication
+itself** for the `sse`/`http` transports:
+
+- Set `--token` or `SAGE_MEMORY_TOKEN`. Every request must then carry
+  `Authorization: Bearer <token>` (compared with `hmac.compare_digest`)
+  or it gets a 401.
+- **Non-loopback binds refuse to start without a token.** Loopback
+  (`127.0.0.1`, `localhost`, `::1`) and `stdio` stay zero-config.
+- A **Host allowlist** (loopback spellings + `--allowed-host` /
+  `SAGE_ALLOWED_HOSTS`) defeats DNS rebinding with 403; `Origin` is
+  validated when present. Direct hostname/IP access needs an explicit
+  `--allowed-host` — the allowlist is a browser defense; the token is
+  the real gate.
+- `set_project` is scoped to the detected project root subtree plus
+  `SAGE_ALLOWED_ROOTS` (os.pathsep-separated); `~/.ssh`, `~/.gnupg`,
+  `~/.aws`, and `/etc` are always denied.
+
+Concurrent-writer safety is solved by the ownership protocol; network
+access control is now built in, and a reverse proxy remains the
+recommended pattern for TLS termination and SSO.
 
 ### Caddy + TLS (recommended for small teams)
 

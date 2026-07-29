@@ -113,11 +113,18 @@ def _free_port() -> int:
 
 
 def test_dockerfile_slim_container_serves_health(slim_image, tmp_path):
-    """Container starts + responds to /health within 5s of port-open."""
+    """Container starts + responds to /health within 5s of port-open.
+
+    P0-3 (SM-SEC-01): the image's default CMD binds 0.0.0.0, which now
+    refuses to start without a token — the container gets
+    SAGE_MEMORY_TOKEN and the probe authenticates.
+    """
     port = _free_port()
+    token = "docker-health-test-token"
     cid = subprocess.run(
         [
             "docker", "run", "-d", "--rm",
+            "-e", f"SAGE_MEMORY_TOKEN={token}",
             "-p", f"127.0.0.1:{port}:3333",
             IMAGE_TAG,
         ],
@@ -131,7 +138,11 @@ def test_dockerfile_slim_container_serves_health(slim_image, tmp_path):
         last_exc: Exception | None = None
         while time.monotonic() < deadline:
             try:
-                r = httpx.get(f"http://127.0.0.1:{port}/health", timeout=2)
+                r = httpx.get(
+                    f"http://127.0.0.1:{port}/health",
+                    headers={"Authorization": f"Bearer {token}"},
+                    timeout=2,
+                )
                 if r.status_code == 200:
                     payload = r.json()
                     assert payload.get("status") == "ok"
