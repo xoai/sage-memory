@@ -4,6 +4,14 @@ All notable changes to sage-memory will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `docs/adr/` (P1-6, SM-DOC-02): all eight ADRs referenced in code
+  comments (001–005, 007–010) reconstructed from the citing comments
+  into Context/Decision/Consequences/Status documents, with an index
+  and milestone/review-tag glossary. Gaps where rationale was never
+  recorded are marked explicitly rather than invented.
+
 ### Security
 
 - Transport security (P0-3; SM-SEC-01/02/03, SM-DOC-03):
