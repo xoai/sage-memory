@@ -6,6 +6,17 @@ All notable changes to sage-memory will be documented in this file.
 
 ### Performance
 
+- Resolver memoization (P1-2, descoped by measurement): profiling the
+  post-P1-1 cold scan showed raw tree-sitter parsing at 0.25s of a
+  1.5s scan — a process/thread pool (the P1-2 spec) would save ≤0.5s
+  while adding real concurrency risk, and a threads probe showed zero
+  parse speedup (0.12s serial vs threaded on 200 files). Per the
+  spec's own "choose the executor by measurement" rule, no pool was
+  built; the ≥3× cold-scan goal was already met 19× by P1-1. Instead,
+  the Go/Java sibling-directory lookup is memoized per resolve run
+  (59K calls on the corpus) and per-file directory strings are
+  precomputed — cold scan 1.5s → 1.3s, identical DB state.
+
 - Incremental rescan (P1-1; SM-PERF-01, SM-PERF-03): the resolve pass
   no longer re-reads or re-parses unchanged files. Relations for
   changed files are reused from the scan pass; cross-file dependents

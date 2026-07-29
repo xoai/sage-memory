@@ -91,6 +91,16 @@ class DefinitionsTable:
         sibling lookups (same reason).
     language_by_memory : ``dict[file_memory_id, str]``
         P1-1: file language lookup for the DB-driven re-resolve pass.
+    dir_by_memory : ``dict[file_memory_id, str]``
+        P1-2 (descoped): precomputed parent-directory string per file
+        so the Go/Java sibling lookup never touches ``pathlib`` in its
+        hot loop.
+    _siblings_cache : ``dict[file_memory_id, list[file_memory_id]]``
+        P1-2 (descoped): per-resolve-run memo for
+        ``_siblings_in_same_directory``. Profiling the post-P1-1 cold
+        scan showed 59K sibling lookups at ~10µs each dominating the
+        resolve pass; the answer for a given file is stable within a
+        run, so it is computed once.
     """
 
     per_file_symbols: dict[str, dict[str, str]] = field(default_factory=dict)
@@ -99,6 +109,8 @@ class DefinitionsTable:
     memory_by_rel_path: dict[str, str] = field(default_factory=dict)
     dir_to_memory_ids: dict[str, list[str]] = field(default_factory=dict)
     language_by_memory: dict[str, str] = field(default_factory=dict)
+    dir_by_memory: dict[str, str] = field(default_factory=dict)
+    _siblings_cache: dict[str, list[str]] = field(default_factory=dict)
 
 
 def resolve_codebase(
@@ -458,9 +470,9 @@ def _build_definitions(
         defs.rel_path_by_memory[memory_id] = rel_path
         defs.memory_by_rel_path[rel_path] = memory_id
         defs.language_by_memory[memory_id] = language
-        defs.dir_to_memory_ids.setdefault(
-            str(Path(rel_path).parent), [],
-        ).append(memory_id)
+        parent_dir = str(Path(rel_path).parent)
+        defs.dir_by_memory[memory_id] = parent_dir
+        defs.dir_to_memory_ids.setdefault(parent_dir, []).append(memory_id)
 
         # Python module path: drop .py and convert / to .; treat
         # __init__.py as the package itself (drop the trailing
@@ -600,15 +612,25 @@ def _siblings_in_same_directory(
     previous per-call scan of ``rel_path_by_memory`` was O(files) per
     relation, which matters now that re-resolution runs over every
     unresolved row from the DB.
+
+    P1-2 (descoped): memoized per resolve run — profiling showed this
+    function + its ``pathlib`` work dominating the resolve pass (59K
+    calls on the 471-file Go corpus). The answer is stable within a
+    run, so repeat calls are dict hits.
     """
-    source_rel = defs.rel_path_by_memory.get(memory_id)
-    if source_rel is None:
+    cached = defs._siblings_cache.get(memory_id)
+    if cached is not None:
+        return cached
+    source_dir = defs.dir_by_memory.get(memory_id)
+    if source_dir is None:
+        defs._siblings_cache[memory_id] = []
         return []
-    source_dir = str(Path(source_rel).parent)
-    return [
+    out = [
         m for m in defs.dir_to_memory_ids.get(source_dir, [])
         if m != memory_id
     ]
+    defs._siblings_cache[memory_id] = out
+    return out
 
 
 # ───────────────────────────────────────────────────────────────────
