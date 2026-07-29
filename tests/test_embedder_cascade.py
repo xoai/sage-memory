@@ -69,6 +69,10 @@ def test_local_embedder_version_is_pinned():
 def test_fastembed_version_is_model_checkpoint(expected_prefix):
     """FastEmbedder.version must be the underlying model checkpoint id
     (per spec — NOT the fastembed package version)."""
+    # SM-TEST-01 (P0-1): the [neural] extra is optional — CI job 1 runs
+    # base deps only (zero-extra floor, invariant 1), so this test must
+    # SKIP, not fail, when fastembed is absent.
+    pytest.importorskip("fastembed")
     fe = FastEmbedder()  # downloads model if not cached
     assert fe.version.startswith(expected_prefix), (
         f"expected version to be model checkpoint, got {fe.version!r}"
@@ -331,6 +335,13 @@ RESOLVER_SCENARIOS = [
 )
 def test_resolve_scenarios(monkeypatch, corpus_dim, env_keys, fastembed_available, expected):
     """Each row of ADR-005's worked-scenarios table."""
+    # SM-TEST-01 (P0-1): scenario1 expects the fastembed tier to WIN;
+    # with base deps only ([neural] extra absent) that outcome is
+    # unreachable — skip rather than fail. Scenario4 (REFUSE) also
+    # lists fastembed_available=True but its outcome is identical with
+    # T2 absent, so it keeps running on the zero-extra floor.
+    if expected == "fastembed":
+        pytest.importorskip("fastembed")
     # Scrub all hosted env vars first
     for k in ("OPENAI_API_KEY", "VOYAGE_API_KEY", "COHERE_API_KEY"):
         monkeypatch.delenv(k, raising=False)

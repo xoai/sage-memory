@@ -4,12 +4,40 @@ All notable changes to sage-memory will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Docker image size budgets re-based to CI-measured reality
+  (slim ~210MB / full ~455MB uncompressed; previously aspirational
+  60MB/350MB targets that predated the v0.13.1 FastMCP dependency
+  tree and were never CI-enforced — the first CI run caught the
+  drift). Multi-stage slimming tracked as a follow-up.
+
 ### Added
 
 - `LICENSE` file (MIT). `pyproject.toml` now uses PEP 639 metadata
   (`license = "MIT"`, `license-files = ["LICENSE"]`); built wheels
   carry `License-Expression: MIT` and ship the license text under
   `dist-info/licenses/`. (P0-2, SM-LEGAL-01)
+- CI quality gate (P0-1, SM-PROC-01): `.github/workflows/ci.yml` runs
+  on every push to main and every PR — test matrix Python 3.11–3.13
+  on base deps (proves the zero-extra floor), all-extras job, ruff
+  lint, and a wheel/sdist build check. `dependabot.yml` groups weekly
+  minor/patch bumps for pip and github-actions.
+- `docs/config.yaml.example` (P0-1b, SM-BUG-01): the shipped config
+  example, moved out of gitignored `.sage/`. Covers every recognised
+  config key with real defaults and inline docs.
+
+### Fixed
+
+- `tests/test_documentation.py` could never pass on a clean clone —
+  it asserted `.sage/config.yaml.example` exists while `.gitignore`
+  ignores `.sage/` (shipped broken in v0.13.1). The test now points
+  at `docs/config.yaml.example`, and a new reverse-drift test proves
+  every key in the example is a recognised config key. Verified on a
+  fresh clone.
+- fastembed-dependent tests now `importorskip` when the `[neural]`
+  extra is absent (SM-TEST-01) instead of failing on the base-deps
+  floor.
 
 ## [0.13.1] — 2026-07-29
 

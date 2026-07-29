@@ -60,16 +60,23 @@ def test_changelog_06x_07x_entries_present():
 
 
 def test_config_yaml_example_covers_required_keys():
-    """`.sage/config.yaml.example` exists; ≥30 non-empty lines;
-    covers required key paths from spec A13."""
-    path = _REPO_ROOT / ".sage/config.yaml.example"
-    assert path.exists(), ".sage/config.yaml.example must exist"
+    """`docs/config.yaml.example` exists; ≥30 non-empty lines;
+    covers required key paths from spec A13.
+
+    P0-1b (SM-BUG-01): the example previously lived at
+    `.sage/config.yaml.example`, but `.gitignore` ignores `.sage/` —
+    the file could never be committed and this test could never pass
+    on a clean clone. Moved to `docs/` (option A): `.sage/` stays
+    purely runtime state.
+    """
+    path = _REPO_ROOT / "docs/config.yaml.example"
+    assert path.exists(), "docs/config.yaml.example must exist"
     lines = [
         line for line in path.read_text("utf-8").splitlines()
         if line.strip()
     ]
     assert len(lines) >= 30, (
-        f".sage/config.yaml.example must be ≥30 non-empty lines; "
+        f"docs/config.yaml.example must be ≥30 non-empty lines; "
         f"got {len(lines)}"
     )
 
@@ -89,3 +96,45 @@ def test_config_yaml_example_covers_required_keys():
         assert key_path in content, (
             f"config.yaml.example must include {key_path!r}"
         )
+
+
+def test_config_yaml_example_keys_are_recognised():
+    """Reverse-drift guard (P0-1b): every concrete key in the example
+    must be a recognised config key — i.e. resolvable through
+    ``config.get()`` against the built-in defaults tree.
+
+    The forward direction (test above) proves required keys are
+    present; this proves no stale/typo'd keys crept in. The example
+    top-level `sage_memory:` namespace is stripped before resolution,
+    matching ``config.py:_load_yaml``.
+    """
+    import yaml
+
+    from sage_memory import config as cfg
+
+    raw = (_REPO_ROOT / "docs/config.yaml.example").read_text("utf-8")
+    parsed = yaml.safe_load(raw)
+    tree = parsed.get("sage_memory", {})
+    assert isinstance(tree, dict) and tree, (
+        "example must have a non-empty sage_memory mapping"
+    )
+
+    def _walk(node: dict, prefix: str) -> list[str]:
+        paths = []
+        for key, value in node.items():
+            dotted = f"{prefix}.{key}" if prefix else key
+            if isinstance(value, dict) and value:
+                paths.extend(_walk(value, dotted))
+            elif not isinstance(value, dict):  # leaf
+                paths.append(dotted)
+            # empty dict {} = documented-but-env-only section; skip
+        return paths
+
+    for dotted in _walk(tree, ""):
+        try:
+            cfg.get(dotted)
+        except cfg.ConfigError as e:
+            raise AssertionError(
+                f"example key {dotted!r} is not a recognised config "
+                f"key: {e}"
+            ) from e

@@ -18,7 +18,7 @@ dependencies = [
 [project.optional-dependencies]
 neural = ["fastembed>=0.4.0"]
 codebase = ["tree-sitter-language-pack>=0.7.0,<1.0"]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.24"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "ruff>=0.9"]
 
 [project.scripts]
 sage-memory = "sage_memory:main"
@@ -36,3 +36,24 @@ markers = [
     "perf: performance budgets (skipped by default; run with `-m perf`)",
 ]
 addopts = "-m 'not perf'"
+
+[tool.ruff]
+target-version = "py311"
+
+[tool.ruff.lint]
+# P0-1 baseline (SM-PROC-01): the classic default ruleset minus the
+# rules with pre-existing findings (161 at baseline time: unused
+# imports, E402 import-not-at-top, semicolons, etc.). Per the P0-1
+# spec, pre-existing lint is NOT fixed in the CI PR — the ignored
+# rules are the documented backlog; ratchet them back in one rule at
+# a time as follow-up tasks.
+select = ["E4", "E7", "E9", "F"]
+ignore = [
+    "E401",  # multiple-imports-on-one-line (4 pre-existing)
+    "E402",  # module-import-not-at-top-of-file (19 pre-existing)
+    "E702",  # multiple-statements-on-one-line (19 pre-existing)
+    "F401",  # unused-import (103 pre-existing)
+    "F541",  # f-string-missing-placeholders (6 pre-existing)
+    "F811",  # redefined-while-unused (3 pre-existing)
+    "F841",  # unused-variable (7 pre-existing)
+]

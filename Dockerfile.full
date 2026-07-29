@@ -2,7 +2,8 @@
 #
 # Same base as Dockerfile.slim BUT installs sage-memory[neural]
 # and warms the bge-small-en-v1.5 weights at build time so first-store
-# is instant (no download). Target image size: ≤ 350MB.
+# is instant (no download). CI-measured size: ~455MB uncompressed
+# (budget 475MB, tests/docker/test_docker_full.py).
 #
 # Use this image when running on hardware that should not download
 # weights on first use (offline air-gapped deployments, regulated
