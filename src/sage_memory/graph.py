@@ -9,9 +9,14 @@ CASCADE deletes clean up edges automatically when memories are removed.
 
 from __future__ import annotations
 
+import logging
+
 import json
 import time
 import uuid
+
+
+logger = logging.getLogger("sage-memory")
 
 from .db import get_db
 
@@ -199,8 +204,12 @@ def graph(*, id: str, relation: str | None = None,
                 [now] + discovered_ids,
             )
             db.commit()
-        except Exception:
-            pass
+        except Exception as e:
+            # P1-4 (SM-REL-02): access bump is non-fatal, now visible.
+            logger.debug(
+                "graph: access bump failed: %s: %s",
+                type(e).__name__, e,
+            )
 
     return {
         "success": True,

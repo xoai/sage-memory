@@ -4,6 +4,17 @@ All notable changes to sage-memory will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Search-path observability (P1-4, SM-REL-02): a failing retrieval
+  channel is no longer indistinguishable from an empty one. Channel
+  legs (bm25/vector/graph) are guarded at the call site — failures
+  degrade to an empty leg + a `warning` log carrying the channel and
+  a short query hash (never the query text); `_vec_search*` previously
+  had NO guard, so a vec-channel error killed the whole search. The
+  access-tracking cluster stays non-fatal but is debug-logged and
+  counted (`_ACCESS_FLUSH_FAILURES`). Public MCP response shape
+  unchanged (pinned by test).
 ### Performance
 
 - Resolver memoization (P1-2, descoped by measurement): profiling the
