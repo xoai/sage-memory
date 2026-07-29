@@ -75,6 +75,11 @@ def main():
         from .cli_scan_codebase import run_scan_codebase
         sys.exit(run_scan_codebase(argv[1:]))
 
+    if argv[0] == "code":
+        # P2-1: structural code-graph queries (path/affected/hubs).
+        from .cli_code import run_code
+        sys.exit(run_code(argv[1:]))
+
     if argv[0] == "worker":
         # `worker --status` is the only flag in M3a; `worker --help`
         # prints the worker subcommand's help; bare `worker` shows usage.

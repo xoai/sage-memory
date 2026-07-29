@@ -124,6 +124,11 @@ def test_sse_handshake_and_tools_list(sse_server):
                     "sage_memory_link",
                     "sage_memory_graph",
                     "sage_memory_scan_codebase",
+                    # P2-1 (SM-CAP-01): additive code-graph tools
+                    # (intentional 9 → 12 growth, invariant 4).
+                    "sage_memory_code_path",
+                    "sage_memory_code_affected",
+                    "sage_memory_code_hubs",
                 }
                 assert names == expected, (
                     f"tools/list mismatch — missing: {expected - names}, "
