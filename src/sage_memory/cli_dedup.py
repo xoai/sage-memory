@@ -244,7 +244,10 @@ def _run_sync(db) -> int:
     concurrent writer (including the worker's dedup task processor)
     until COMMIT/ROLLBACK.
     """
-    db.execute(f"PRAGMA application_id = {_SAGE_APPLICATION_ID}")
+    # P2-3 (hygiene): PRAGMA values can't use `?` binding;
+    # _SAGE_APPLICATION_ID is a module-level constant and the int()
+    # cast makes the f-string type-safe by construction.
+    db.execute(f"PRAGMA application_id = {int(_SAGE_APPLICATION_ID)}")
     db.execute("BEGIN IMMEDIATE")
     try:
         summary = _dedup.run_pass(

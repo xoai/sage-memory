@@ -230,6 +230,27 @@ sage-memory scan-codebase --languages py,ts  # subset
 sage-memory scan-codebase --force    # re-parse all (default skips unchanged)
 ```
 
+Query the code graph it builds (structural, no LLM):
+
+```bash
+sage-memory code path Compile RunPipeline   # shortest call path (resolved edges only)
+sage-memory code affected Compile --depth 2 # what breaks if I change this
+sage-memory code hubs --limit 10            # architectural hot spots
+```
+
+Import an external tool's code graph (e.g. for languages beyond the
+native 10) — pure JSON artifact, no extra dependency, provenance
+preserved (`source = 'import:<tool>'`, no silent confidence upgrades,
+idempotent per-source replace):
+
+```bash
+sage-memory code import graph.json --tool codemap
+```
+
+`path` walks only *resolved* edges (name-matched unresolved edges are
+never hops); `affected` labels unresolved edges as name-matches with a
+`--resolved-only` filter. All three are also MCP tools.
+
 Or invoke the MCP tool from your agent:
 
 ```json
@@ -300,6 +321,9 @@ Typed directed edges between memories via `sage_memory_link`. Cycle-safe multi-h
 | `sage_memory_link` | Create/delete typed directed edges |
 | `sage_memory_graph` | Cycle-safe multi-hop traversal |
 | `sage_memory_scan_codebase` | Tree-sitter index of source code (10 languages) — requires `[codebase]` extra |
+| `sage_memory_code_path` | Shortest call/import path between two symbols (resolved edges only) — requires `[codebase]` extra |
+| `sage_memory_code_affected` | Reverse traversal: what depends on a symbol, grouped by relation kind — requires `[codebase]` extra |
+| `sage_memory_code_hubs` | Most-connected symbols with in/out degree split — requires `[codebase]` extra |
 
 <details>
 <summary><b>Tool examples</b></summary>

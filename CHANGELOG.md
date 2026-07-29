@@ -17,6 +17,63 @@ All notable changes to sage-memory will be documented in this file.
   rejected. ANN evaluated with a recorded measurement (brute-force
   cosine: 21.5ms at 100K vectors, far under the 200ms budget) and
   NOT built. Zero-dep floor unchanged.
+- Structural code-graph queries (P2-1, SM-CAP-01): `path`,
+  `affected`, `hubs` over the scanned code graph — deterministic,
+  no LLM/embeddings. Surfaces: `sage-memory code {path, affected,
+  hubs}` CLI and three **additive** MCP tools
+  (`sage_memory_code_path`, `sage_memory_code_affected`,
+  `sage_memory_code_hubs`; tools/list grows 10 → 13, existing tools
+  byte-identical). `path` traverses resolved edges only (unresolved
+  name-matches are never hops); `affected`/`hubs` label unresolved
+  edges distinctly with a `--resolved-only` filter. Traversals are
+  cycle-safe and cap-bounded with honest `truncated` signalling.
+  Migration `012_code_graph_indexes.sql` adds `code_symbols(name)` +
+  `(file_memory_id)` indexes. Measured on the 35K-relation corpus:
+  affected <1ms, hubs 10ms, path <1ms (targets 200/500/200ms).
+
+- Cross-tool code-graph import (P2-4, SM-CAP-01 adjacent):
+  `sage-memory code import <graph.json> [--tool <name>]` ingests an
+  external tool's deterministic code graph (JSON nodes/edges) into
+  `code_symbols`/`code_relations` — pure file artifact, no dependency
+  on the external package (incompatible tree-sitter pins). Provenance
+  via migration `013_relation_source.sql` (`source` column, native
+  rows keep the `'native'` default; imports tagged
+  `'import:<tool>'`). Confidence mapping never silently upgrades:
+  only explicit fact labels become `resolved`. Re-import replaces
+  that source's rows only; native and other tools' rows untouched.
+  Imported edges are visible to the P2-1 `affected`/`hubs` queries
+  with correct confidence labels.
+
+### Changed
+
+- SQL hygiene (P2-3, SM-QUAL-01 — **not a vulnerability fix**):
+  identifiers interpolated into SQL f-strings in `cli_reindex.py`
+  (vec backup tables) now pass a strict `^[A-Za-z_][A-Za-z0-9_]*$`
+  whitelist (`db.require_sql_identifier`), and the
+  `PRAGMA application_id` value in `cli_dedup.py` is `int()`-cast.
+  The interpolated values were always internal constants — no
+  injection was reachable; this keeps scanners quiet and makes
+  future unsafe edits fail loudly.
+
+### Security
+
+- Transport security (P0-3; SM-SEC-01/02/03, SM-DOC-03):
+  - **Bearer auth** for `sse`/`http` transports: `--token` flag or
+    `SAGE_MEMORY_TOKEN` env; every request must carry
+    `Authorization: Bearer <token>` (`hmac.compare_digest`), else 401.
+  - **Refuse-start rule**: non-loopback binds (including `0.0.0.0`
+    and blank/wildcard hosts) without a token now exit with a clear
+    error. Loopback and stdio stay zero-config.
+  - **Host allowlist + Origin validation** (403): loopback spellings
+    plus `--allowed-host` (repeatable) / `SAGE_ALLOWED_HOSTS`
+    (os.pathsep-separated). Defeats DNS rebinding and browser
+    cross-origin drives.
+  - **`set_project` scoping**: only the detected project root subtree
+    (or launch directory when no markers exist) plus
+    `SAGE_ALLOWED_ROOTS` is accepted; `~/.ssh`, `~/.gnupg`, `~/.aws`,
+    `/etc` are always denied. Containment uses resolved-path
+    `Path.is_relative_to` (sibling-prefix paths rejected).
+  - New `SECURITY.md` (threat model, reporting).
 
 ### Changed
 
