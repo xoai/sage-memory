@@ -83,11 +83,22 @@ class DefinitionsTable:
     rel_path_by_memory : ``dict[file_memory_id, str]``
         Used to identify a relation's source file and translate
         relative imports.
+    memory_by_rel_path : ``dict[str, file_memory_id]``
+        P1-1: precomputed reverse of ``rel_path_by_memory`` — the TS/Rust
+        resolvers previously rebuilt it per call (O(files) per relation).
+    dir_to_memory_ids : ``dict[str, list[file_memory_id]]``
+        P1-1: precomputed directory → files map for the Go/Java
+        sibling lookups (same reason).
+    language_by_memory : ``dict[file_memory_id, str]``
+        P1-1: file language lookup for the DB-driven re-resolve pass.
     """
 
     per_file_symbols: dict[str, dict[str, str]] = field(default_factory=dict)
     file_by_module: dict[tuple[str, str], str] = field(default_factory=dict)
     rel_path_by_memory: dict[str, str] = field(default_factory=dict)
+    memory_by_rel_path: dict[str, str] = field(default_factory=dict)
+    dir_to_memory_ids: dict[str, list[str]] = field(default_factory=dict)
+    language_by_memory: dict[str, str] = field(default_factory=dict)
 
 
 def resolve_codebase(
@@ -95,22 +106,56 @@ def resolve_codebase(
     *,
     project_root: Path,
     parsers: dict[str, object],
+    extracted: dict[str, dict] | None = None,
 ) -> ResolveResult:
     """Pass 1 + Pass 2.
 
-    Walks the set of files in ``codebase_scans`` (NOT the filesystem —
-    this guarantees the resolver only touches files we know we
-    successfully scanned). Re-extracts each, resolves, and inserts
-    relations using ``INSERT OR IGNORE`` so repeat calls are idempotent
-    against the ``code_relations`` UNIQUE constraint.
+    Two modes (P1-1):
+
+    ``extracted=None`` (legacy / ``--full-resolve`` escape hatch):
+    walks every file in ``codebase_scans``, re-reads + re-extracts
+    from disk, resolves, inserts. This is the pre-P1-1 path — kept
+    verbatim for direct callers and debugging.
+
+    ``extracted={memory_id: {"relations": [...], "had_error_nodes":
+    bool}}`` (incremental, the default from ``scan()``): relations
+    for files re-parsed THIS run arrive pre-extracted from the scan
+    pass — no disk reads, no re-parsing. Everything else is resolved
+    from the DB:
+
+      1. INSERT relations for the extracted files (their old rows
+         were CASCADE-deleted with their symbols).
+      2. Restore ``_resolve_orphans`` — rows in unchanged files whose
+         target symbols lived in a CHANGED file (snapshotted by
+         ``_scan_file`` before the cascade) — as unresolved.
+      3. DB-driven re-resolve: every still-unresolved row is re-run
+         through its language resolver against the fresh definitions
+         table and UPDATEd in place when a target is found. This is
+         the cross-file dependent set: an unchanged file's relation
+         resolves when a newly-scanned file defines the target.
 
     ``parsers`` maps language_tag (e.g. ``"py"``) or grammar_name
-    (e.g. ``"python"``) to a tree-sitter Parser. The caller (CLI /
-    MCP) is responsible for setting these up — kept out of this module
-    so the resolver itself stays unaware of the ``[codebase]`` extra.
+    (e.g. ``"python"``) to a tree-sitter Parser. Only used by the
+    legacy disk path.
     """
     project_root = Path(project_root).resolve()
     defs = _build_definitions(conn, project_root)
+
+    if extracted is None:
+        return _resolve_from_disk(
+            conn, project_root=project_root, parsers=parsers, defs=defs,
+        )
+    return _resolve_incremental(conn, defs=defs, extracted=extracted)
+
+
+def _resolve_from_disk(
+    conn: sqlite3.Connection,
+    *,
+    project_root: Path,
+    parsers: dict[str, object],
+    defs: DefinitionsTable,
+) -> ResolveResult:
+    """Pre-P1-1 full re-parse path (escape hatch)."""
 
     result = ResolveResult()
     scans = conn.execute(
@@ -228,6 +273,123 @@ def resolve_codebase(
 
 
 # ───────────────────────────────────────────────────────────────────
+# P1-1 — Incremental resolve (DB-driven, no re-parsing)
+# ───────────────────────────────────────────────────────────────────
+
+
+def _resolve_incremental(
+    conn: sqlite3.Connection,
+    *,
+    defs: DefinitionsTable,
+    extracted: dict[str, dict],
+) -> ResolveResult:
+    result = ResolveResult()
+
+    # ── 1. Insert relations for files re-parsed this run ──────────
+    for memory_id, sink in extracted.items():
+        language = defs.language_by_memory.get(memory_id)
+        resolver = _RESOLVERS.get(language) if language else None
+        per_file_syms = defs.per_file_symbols.get(memory_id, {})
+        module_anchor_id: str | None = None
+
+        if sink.get("had_error_nodes"):
+            result.files_with_error_nodes += 1
+        result.files_walked += 1
+        now = time.time()
+        for ext_rel in sink.get("relations", []):
+            source_id = per_file_syms.get(ext_rel.source_qname)
+            if source_id is None:
+                if ext_rel.source_qname == "" and ext_rel.kind == "imports":
+                    if module_anchor_id is None:
+                        module_anchor_id = _get_or_create_module_anchor(
+                            conn, memory_id, language,
+                        )
+                        per_file_syms["<module>"] = module_anchor_id
+                        defs.per_file_symbols[memory_id] = per_file_syms
+                    source_id = module_anchor_id
+                else:
+                    continue
+
+            target_id = None
+            if resolver is not None:
+                target_id = resolver(ext_rel, language, memory_id, defs)
+            confidence = "resolved" if target_id is not None else "unresolved"
+
+            try:
+                conn.execute(
+                    """INSERT OR IGNORE INTO code_relations
+                       (id, source_symbol_id, target_symbol_id, target_name,
+                        kind, confidence, line, column_start, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        uuid.uuid4().hex, source_id, target_id,
+                        ext_rel.target_name, ext_rel.kind, confidence,
+                        ext_rel.line, ext_rel.column_start, now,
+                    ),
+                )
+                if target_id is not None:
+                    result.relations_resolved += 1
+                else:
+                    result.relations_unresolved += 1
+            except sqlite3.IntegrityError:
+                pass
+
+    # ── 2. Restore CASCADE orphans as unresolved ──────────────────
+    # Rows in unchanged files whose target symbols lived in a changed
+    # file; snapshotted by _scan_file before the delete cascade.
+    orphan_table = conn.execute(
+        "SELECT name FROM sqlite_temp_master WHERE type='table' "
+        "AND name='_resolve_orphans'"
+    ).fetchone()
+    if orphan_table is not None:
+        conn.execute(
+            """INSERT OR IGNORE INTO code_relations
+               (id, source_symbol_id, target_symbol_id, target_name,
+                kind, confidence, line, column_start, created_at)
+               SELECT id, source_symbol_id, NULL, target_name, kind,
+                      'unresolved', line, column_start, ?
+               FROM _resolve_orphans""",
+            (time.time(),),
+        )
+        conn.execute("DELETE FROM _resolve_orphans")
+
+    # ── 3. DB-driven re-resolve of all unresolved rows ────────────
+    # The cross-file dependent set, computed in memory instead of by
+    # query: every unresolved row gets another pass through its
+    # language resolver against the fresh definitions table. Cheap
+    # (dict lookups) — the pre-P1-1 cost was PARSING, not resolving.
+    unresolved = conn.execute(
+        """SELECT cr.id, cr.kind, cr.target_name, cr.line,
+                  cr.column_start, cs.qualified_name AS source_qname,
+                  cs.language AS language, cs.file_memory_id AS memory_id
+           FROM code_relations cr
+           JOIN code_symbols cs ON cs.id = cr.source_symbol_id
+           WHERE cr.target_symbol_id IS NULL"""
+    ).fetchall()
+    for row in unresolved:
+        resolver = _RESOLVERS.get(row["language"])
+        if resolver is None:
+            continue
+        shim = ExtractedRelation(
+            target_name=row["target_name"],
+            kind=row["kind"],
+            line=row["line"],
+            column_start=row["column_start"],
+            source_qname=row["source_qname"],
+        )
+        target_id = resolver(shim, row["language"], row["memory_id"], defs)
+        if target_id is not None:
+            conn.execute(
+                "UPDATE code_relations SET target_symbol_id = ?, "
+                "confidence = 'resolved' WHERE id = ?",
+                (target_id, row["id"]),
+            )
+            result.relations_resolved += 1
+
+    return result
+
+
+# ───────────────────────────────────────────────────────────────────
 # Synthetic <module> anchor
 # ───────────────────────────────────────────────────────────────────
 
@@ -294,6 +456,11 @@ def _build_definitions(
         except ValueError:
             continue
         defs.rel_path_by_memory[memory_id] = rel_path
+        defs.memory_by_rel_path[rel_path] = memory_id
+        defs.language_by_memory[memory_id] = language
+        defs.dir_to_memory_ids.setdefault(
+            str(Path(rel_path).parent), [],
+        ).append(memory_id)
 
         # Python module path: drop .py and convert / to .; treat
         # __init__.py as the package itself (drop the trailing
@@ -428,18 +595,20 @@ def _siblings_in_same_directory(
     """Return file_memory_ids of OTHER files in the same directory as
     ``memory_id``. Used by Go (same-package convention) and Java (same
     directory ≈ same package in single-rooted projects).
+
+    P1-1: reads the precomputed ``dir_to_memory_ids`` map — the
+    previous per-call scan of ``rel_path_by_memory`` was O(files) per
+    relation, which matters now that re-resolution runs over every
+    unresolved row from the DB.
     """
     source_rel = defs.rel_path_by_memory.get(memory_id)
     if source_rel is None:
         return []
     source_dir = str(Path(source_rel).parent)
-    out = []
-    for other_id, other_rel in defs.rel_path_by_memory.items():
-        if other_id == memory_id:
-            continue
-        if str(Path(other_rel).parent) == source_dir:
-            out.append(other_id)
-    return out
+    return [
+        m for m in defs.dir_to_memory_ids.get(source_dir, [])
+        if m != memory_id
+    ]
 
 
 # ───────────────────────────────────────────────────────────────────
@@ -509,8 +678,9 @@ def _ts_resolve_relative_module(
     source_dir = Path(source_rel).parent
     target_base = (source_dir / module_specifier).as_posix()
 
-    # Build a rel_path → memory_id reverse lookup once.
-    by_path = {v: k for k, v in defs.rel_path_by_memory.items()}
+    # P1-1: precomputed rel_path → memory_id lookup (was rebuilt per
+    # call — O(files) per relation).
+    by_path = defs.memory_by_rel_path
 
     for ext in _TS_JS_EXTENSIONS:
         candidate = target_base + ext
@@ -599,7 +769,7 @@ def _resolve_rust(
             (source_dir / f"{module_path.replace('::', '/')}.rs").as_posix(),
             (source_dir / module_path.replace("::", "/") / "mod.rs").as_posix(),
         ]
-        by_path = {v: k for k, v in defs.rel_path_by_memory.items()}
+        by_path = defs.memory_by_rel_path
         for candidate in candidates:
             target_memory_id = by_path.get(candidate)
             if target_memory_id is not None:
