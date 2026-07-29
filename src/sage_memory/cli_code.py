@@ -107,7 +107,21 @@ def run_code(argv: list[str]) -> int:
     cmd, rest = argv[0], argv[1:]
     json_out = "--json" in rest
     resolved_only = "--resolved-only" in rest
-    positional = [a for a in rest if not a.startswith("--")]
+    # /review #6: values of known value-flags must not leak into
+    # positional args (e.g. `--tool x` made `x` look like the
+    # artifact path).
+    _VALUE_FLAGS = {"--tool", "--max-depth", "--depth", "--limit"}
+    positional = []
+    skip_next = False
+    for a in rest:
+        if skip_next:
+            skip_next = False
+            continue
+        if a in _VALUE_FLAGS:
+            skip_next = True
+            continue
+        if not a.startswith("--"):
+            positional.append(a)
 
     def _int_flag(name: str, default: int) -> int:
         if name in rest:

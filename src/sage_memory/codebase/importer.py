@@ -69,11 +69,54 @@ def import_graph(
         "edges_unresolved": 0,
     }
 
+    try:
+        _import_body(
+            conn, source=source, tool_name=tool_name,
+            nodes=nodes, edges=edges, result=result,
+        )
+    except Exception:
+        # /review #2: never leave a partially-written import in an
+        # open transaction for a later commit to persist.
+        conn.rollback()
+        raise
+    conn.commit()
+    return result
+
+
+def _coerce_int(value: Any) -> int | None:
+    """int() that returns None instead of raising on None / non-numeric
+    input — external tools emit both (/review #2)."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _import_body(
+    conn: sqlite3.Connection, *, source: str, tool_name: str,
+    nodes: list, edges: list, result: dict[str, Any],
+) -> None:
     now = time.time()
 
-    # Idempotent per-source replace: this source's previous rows go;
-    # native and other tools' rows are never touched (design §Idempotency).
+    # Idempotent per-source replace: this source's previous relations
+    # AND symbols go (symbols via the tool's sentinel file memories —
+    # code_symbols has no source column). Native and other tools' rows
+    # are never touched. /review #4: deleting symbols up-front also
+    # removes rows whose files vanished from the new artifact.
     conn.execute("DELETE FROM code_relations WHERE source = ?", (source,))
+    tool_memories = [
+        r[0] for r in conn.execute(
+            "SELECT file_memory_id FROM codebase_scans "
+            "WHERE content_hash LIKE ?",
+            (f"import:{tool_name}:%",),
+        )
+    ]
+    if tool_memories:
+        ph = ",".join("?" * len(tool_memories))
+        conn.execute(
+            f"DELETE FROM code_symbols WHERE file_memory_id IN ({ph})",
+            tool_memories,
+        )
 
     # ── Nodes → code_symbols (+ file memory linkage) ──────────────
     ext_to_symbol: dict[str, str] = {}
@@ -83,6 +126,14 @@ def import_graph(
         if not all(k in node for k in _REQUIRED_NODE_KEYS):
             result["skipped_malformed"] += 1
             continue
+        line_start = _coerce_int(node.get("line_start"))
+        if line_start is None:
+            # /review #2: un-coercible line numbers are malformed,
+            # not fatal.
+            result["skipped_malformed"] += 1
+            continue
+        line_end = _coerce_int(node.get("line_end")) or line_start
+
         ext_id = node["id"]
         name = node["name"]
         qualified = node.get("qualified_name") or name
@@ -96,31 +147,39 @@ def import_graph(
             file_memories[file_rel] = memory_id
 
         symbol_id = uuid.uuid4().hex
-        # Re-import must not duplicate symbols for the same file+qname:
-        # the tool's file memories are per-tool (sentinel hash), so
-        # every symbol under them belongs to this import source.
-        # Relations were already deleted above (per-source replace),
-        # so the source-side FK cascade is a no-op here.
-        conn.execute(
-            """DELETE FROM code_symbols
-               WHERE file_memory_id = ? AND qualified_name = ?""",
-            (memory_id, qualified),
-        )
-        conn.execute(
-            """INSERT INTO code_symbols
-               (id, file_memory_id, name, qualified_name, kind, language,
-                signature, line_start, line_end, parent_id, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                symbol_id, memory_id, name, qualified,
-                node.get("kind", "FUNCTION"),
-                node.get("language", "unknown"),
-                node.get("signature"),
-                int(node.get("line_start", 1)),
-                int(node.get("line_end", node.get("line_start", 1))),
-                None, now,
-            ),
-        )
+        try:
+            conn.execute(
+                """INSERT INTO code_symbols
+                   (id, file_memory_id, name, qualified_name, kind,
+                    language, signature, line_start, line_end,
+                    parent_id, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    symbol_id, memory_id, name, qualified,
+                    node.get("kind", "FUNCTION"),
+                    node.get("language", "unknown"),
+                    node.get("signature"),
+                    line_start, line_end,
+                    None, now,
+                ),
+            )
+        except sqlite3.IntegrityError:
+            # Exact duplicate node within the artifact (same file,
+            # qname, kind, line) — map the ext id onto the first
+            # occurrence and count it. Overloads (same qname, DIFFERENT
+            # line) are distinct keys and coexist normally (/review #1).
+            row = conn.execute(
+                """SELECT id FROM code_symbols
+                   WHERE file_memory_id = ? AND qualified_name = ?
+                     AND kind = ? AND line_start = ?""",
+                (memory_id, qualified, node.get("kind", "FUNCTION"),
+                 line_start),
+            ).fetchone()
+            if row is None:
+                result["skipped_malformed"] += 1
+                continue
+            symbol_id = row[0]
+            result["skipped_malformed"] += 1
         ext_to_symbol[ext_id] = symbol_id
         result["imported"] += 1
 
@@ -147,7 +206,8 @@ def import_graph(
         if target_id is None:
             confidence = "unresolved"
 
-        conn.execute(
+        edge_line = _coerce_int(edge.get("line")) or 1
+        cur = conn.execute(
             """INSERT OR IGNORE INTO code_relations
                (id, source_symbol_id, target_symbol_id, target_name,
                 kind, confidence, line, column_start, created_at, source)
@@ -155,16 +215,18 @@ def import_graph(
             (
                 uuid.uuid4().hex, source_id, target_id, target_name,
                 edge["kind"], confidence,
-                int(edge.get("line", 1)), 0, now, source,
+                edge_line, 0, now, source,
             ),
         )
+        if cur.rowcount == 0:
+            # /review #5: artifact-internal duplicate swallowed by
+            # INSERT OR IGNORE — must not inflate the summary.
+            result["skipped_malformed"] += 1
+            continue
         if confidence == "resolved":
             result["edges_resolved"] += 1
         else:
             result["edges_unresolved"] += 1
-
-    conn.commit()
-    return result
 
 
 def _node_name(nodes: list[dict], ext_id: Any) -> str | None:
