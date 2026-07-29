@@ -37,6 +37,17 @@ All notable changes to sage-memory will be documented in this file.
   counted (`_ACCESS_FLUSH_FAILURES`). Public MCP response shape
   unchanged (pinned by test).
 ### Performance
+- Embedder ergonomics (P2-2, SM-DOC-01 capability half):
+  `sage-memory embedder use <fastembed|openai|voyage|cohere|local>`
+  — validates the tier (import probe / env key; never prompts for
+  secrets), then runs the existing tested backup + dim-migration +
+  re-embed flow. `use local` is the downgrade path to the zero-dep
+  floor. `sage-memory status` now prints an actionable next step when
+  memories are stale (`embedder use fastembed` on the local floor,
+  `reindex --embeddings` otherwise) — auto-enqueue deliberately
+  rejected. ANN evaluated with a recorded measurement (brute-force
+  cosine: 21.5ms at 100K vectors, far under the 200ms budget) and
+  NOT built. Zero-dep floor unchanged.
 - Structural code-graph queries (P2-1, SM-CAP-01): `path`,
   `affected`, `hubs` over the scanned code graph — deterministic,
   no LLM/embeddings. Surfaces: `sage-memory code {path, affected,

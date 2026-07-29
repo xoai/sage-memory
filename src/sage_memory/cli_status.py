@@ -68,3 +68,13 @@ def print_status() -> None:
     print(f"  Memories:")
     print(f"    total:   {total}")
     print(f"    stale:   {stale}")
+
+    # P2-2 (design brief §1): staleness must be actionable. Prompt
+    # the obvious next step — never auto-enqueue (silent cost).
+    if isinstance(stale, int) and stale > 0:
+        if embedder.name == "local":
+            # On the zero-dep floor, the upgrade the user actually
+            # wants is usually a better embedder, not TF-IDF vectors.
+            print("  Next: sage-memory embedder use fastembed")
+        else:
+            print("  Next: sage-memory reindex --embeddings")
